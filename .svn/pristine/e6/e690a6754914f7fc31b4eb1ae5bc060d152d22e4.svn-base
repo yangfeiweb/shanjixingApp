@@ -1,0 +1,39 @@
+rootProject.name = 'shanjixing'
+include ':react-native-idle-timer'
+project(':react-native-idle-timer').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-idle-timer/android')
+include ':react-native-sqlcipher-storage'
+project(':react-native-sqlcipher-storage').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sqlcipher-storage/src/android')
+include ':react-native-apk-installer'
+project(':react-native-apk-installer').projectDir = new File(settingsDir, '../node_modules/react-native-apk-installer/android')
+include ':rn-splash-screen'
+project(':rn-splash-screen').projectDir = new File(rootProject.projectDir, '../node_modules/rn-splash-screen/android')
+include ':react-native-image-crop-picker'
+project(':react-native-image-crop-picker').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-image-crop-picker/android')
+include ':react-native-fs'
+project(':react-native-fs').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-fs/android')
+include ':react-native-device-info'
+project(':react-native-device-info').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-device-info/android')
+include ':react-native-vector-icons'
+project(':react-native-vector-icons').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-vector-icons/android')
+include ':react-native-zip-archive'
+project(':react-native-zip-archive').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-zip-archive/android')
+include ':react-native-orientation'
+project(':react-native-orientation').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-orientation/android')
+include ':react-native-fetch-blob'
+project(':react-native-fetch-blob').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-fetch-blob/android')
+include ':react-native-sound'
+project(':react-native-sound').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sound/android')
+include ':react-native-spinkit'
+project(':react-native-spinkit').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-spinkit/android')
+include ':react-native-linear-gradient'
+project(':react-native-linear-gradient').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-linear-gradient/android')
+// include ':react-native-sqlite-storage'
+// project(':react-native-sqlite-storage').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sqlite-storage/src/android')
+include ':react-native-charts-wrapper'
+project(':react-native-charts-wrapper').projectDir = new File(
+  rootProject.projectDir,
+  '../node_modules/react-native-charts-wrapper/android'
+)
+include ':react-native-svg'
+project(':react-native-svg').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-svg/android')
+include ':app'

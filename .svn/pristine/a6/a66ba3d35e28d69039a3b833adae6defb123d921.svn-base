@@ -1,0 +1,263 @@
+/**
+ * 个人中心修改密码
+ */
+import React, { PureComponent } from "react";
+import {
+  AsyncStorage,
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  Dimensions,
+  TouchableOpacity,
+  ScrollView,
+  ImageBackground,
+  Image
+} from "react-native";
+import { Item, Input, Icon } from "native-base";
+import dismissKeyboard from "react-native-dismiss-keyboard";
+import { NavigationActions } from "react-navigation";
+import { Header, Loading } from "../../components";
+import PropTypes from "prop-types";
+import globalStyle from "../../globalStyle";
+import dataService from "../../services";
+import { userDB } from "../../db";
+import { utility } from "../../utility";
+const { width, height } = Dimensions.get("window");
+
+// const db = new userDB()
+export default class ChangePwd extends PureComponent {
+  constructor(props) {
+    super(props);
+    this.Loading = null;
+    this._root = null;
+    this.oldPwd = null; //就密码
+    this.newPwd = null; //新密码
+    this.newPwdConfirm = null; //确认新密码
+  }
+
+  doChangePwd() {
+    if (!this.checkInputValue()) {
+      return;
+    }
+    this.Loading.show();
+    dataService.changePwd(this.oldPwd, this.newPwd).then(
+      res => {
+        let code = res.code;
+        let msg = res.msg;
+        if (code === 200) {
+          utility.Toast("密码修改成功,请重新登陆");
+          AsyncStorage.removeItem("studentNo").then(res => {
+            this.jumpLogin();
+          });
+          // AsyncStorage.getItem("currMobile").then(res => {
+          //     AsyncStorage.getItem("usersInfo").then(usersInfo => {
+          //         if (usersInfo) {
+          //             let data = JSON.parse(usersInfo)
+          //             let item = data.find((item) => item.mobile === res)
+          //             if (item) {
+          //                 item.password = this.newPwd
+          //                 AsyncStorage.setItem("usersInfo", JSON.stringify(data)).then((res) => {
+          //                     // AsyncStorage.getItem("usersInfo").then(password => {
+          //                     // })
+          //                     this.jumpLogin()
+          //                 }).catch((err) => {
+          //                     this.jumpLogin()
+          //                 })
+          //             }
+          //         }
+          //     })
+          // })
+        }
+        if (code === 500) {
+          utility.Toast(msg);
+        }
+        this.Loading.hide();
+      },
+      err => {
+        this.Loading.hide();
+      }
+    );
+  }
+  jumpLogin() {
+    let actions = NavigationActions.reset({
+      index: 0,
+      actions: [NavigationActions.navigate({ routeName: "Login" })]
+    });
+    this.props.navigation.dispatch(actions);
+  }
+  checkInputValue() {
+    if (!this.oldPwd) {
+      utility.Toast("请输入原密码");
+      return false;
+    }
+    if (!this.newPwd) {
+      utility.Toast("请输入新密码");
+      return false;
+    }
+    if (!this.newPwdConfirm) {
+      utility.Toast("请再次确认密码");
+      return false;
+    }
+    if (this.newPwd !== this.newPwdConfirm) {
+      utility.Toast("两次新密码不一致");
+      return false;
+    }
+    return true;
+  }
+  checkPwd(val) {
+    if (val && val.length < 6) {
+      utility.Toast("请至少输入六位密码");
+    }
+  }
+  render() {
+    return (
+      <View style={{ flex: 1 }}>
+        <ImageBackground
+          source={require("../../assets/images/registry-background.png")}
+          resizeMode={Image.resizeMode.cover}
+          style={{ width: width, height: height }}
+        >
+          <Header title="修改密码" transparent />
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={dismissKeyboard}
+            style={{ flex: 1 }}
+          >
+            <ScrollView
+              style={{ width: "100%" }}
+              contentContainerStyle={styles.borderShadow}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+            >
+              <View style={styles.inputBox}>
+                <View style={styles.item}>
+                  <Item rounded bordered>
+                    <Icon name="lock" style={styles.IconColor} />
+                    <Input
+                      onBlur={() => {
+                        this.checkPwd(this.oldPwd);
+                      }}
+                      onChangeText={val => {
+                        this.oldPwd = val;
+                      }}
+                      secureTextEntry
+                      placeholder="请输入原密码"
+                      placeholderTextColor="#fff"
+                      maxLength={30}
+                      selectionColor="#FFD05C"
+                    />
+                  </Item>
+                </View>
+                <View style={styles.item}>
+                  <Item rounded>
+                    <Icon
+                      name="unlock"
+                      color="#9DD9FF"
+                      style={styles.IconColor}
+                    />
+                    <Input
+                      onBlur={() => {
+                        this.checkPwd(this.newPwd);
+                      }}
+                      onChangeText={val => {
+                        this.newPwd = val;
+                      }}
+                      secureTextEntry
+                      placeholder="请输入新密码"
+                      placeholderTextColor="#fff"
+                      maxLength={30}
+                      selectionColor="#FFD05C"
+                    />
+                  </Item>
+                </View>
+                <View style={styles.item}>
+                  <Item rounded>
+                    <Icon
+                      name="unlock"
+                      color="#9DD9FF"
+                      style={styles.IconColor}
+                    />
+                    <Input
+                      onBlur={() => {
+                        this.checkPwd(this.newPwdConfirm);
+                      }}
+                      onChangeText={val => {
+                        this.newPwdConfirm = val;
+                      }}
+                      secureTextEntry
+                      placeholder="请确认新密码"
+                      placeholderTextColor="#fff"
+                      maxLength={30}
+                      selectionColor="#FFD05C"
+                    />
+                  </Item>
+                </View>
+                <View style={styles.footBtns}>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    style={[
+                      styles.btn,
+                      { backgroundColor: globalStyle.color.primary }
+                    ]}
+                    onPress={this.doChangePwd.bind(this)}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 20 }}>确定</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </TouchableOpacity>
+        </ImageBackground>
+        <Loading
+          ref={ref => {
+            this.Loading = ref;
+          }}
+          title="正在修改..."
+        />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  item: {
+    marginTop: 10,
+    width: "100%"
+  },
+  IconColor: {
+    color: "#67C3FF"
+  },
+  inputBox: {
+    justifyContent: "center",
+    alignItems: "center",
+    width: "60%"
+  },
+  footBtns: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 10
+  },
+  borderShadow: {
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 30,
+    paddingHorizontal: 20,
+    shadowOffset: { width: 4, height: 4 },
+    shadowColor: "#5ABEFF",
+    shadowOpacity: 0.7,
+    shadowRadius: 2,
+    elevation: 2
+  },
+  btn: {
+    width: "100%",
+    height: 60,
+    // paddingHorizontal: 50,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    borderColor: "#56BDFF",
+    borderRadius: 20
+  }
+});

@@ -1,0 +1,43 @@
+import reqUrl from "../urlConfig";
+import { httpRequest, http } from "../../utility";
+import DeviceInfo from "react-native-device-info";
+
+let VERSION = DeviceInfo.getBuildNumber();
+// 检查更新
+let checkAppVersion = () =>
+  httpRequest(reqUrl.CHECK_UPDATE, {
+    osType: "ANDROID",
+    versionCode: VERSION
+  });
+// 同步本地数据到云端
+let syncDataToCloud = (type, data) =>
+  httpRequest(
+    reqUrl.SYNC_DATA,
+    {
+      syncType: type,
+      syncData: data
+    },
+    "POST",
+    {},
+    ["syncData"]
+  );
+
+// 获取试卷列表
+let getExamList = (page, size = 400) =>
+  httpRequest(reqUrl.GET_EXAM_LIST, {
+    page: page,
+    size: size
+  });
+
+// 获取试卷详情
+let getExamDetails = examId =>
+  httpRequest(reqUrl.GET_EXAM_DETAILS, {
+    examId: examId
+  });
+
+export default {
+  checkAppVersion,
+  syncDataToCloud,
+  getExamList,
+  getExamDetails
+};

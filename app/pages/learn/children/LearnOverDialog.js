@@ -1,0 +1,130 @@
+import React from "react";
+import { ScrollView, View, Text, StyleSheet } from "react-native";
+
+import { Button } from "native-base";
+import Icon from "react-native-vector-icons/FontAwesome";
+import commonStyle from "../../../globalStyle";
+
+import PopupDialog, {
+  DialogTitle,
+  SlideAnimation
+} from "react-native-popup-dialog";
+
+const slideAnimation = new SlideAnimation({ slideFrom: "bottom" });
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      playTimes: 1
+    };
+  }
+  show() {
+    this.refs.popDialog.show();
+  }
+  hide() {
+    this.refs.popDialog.dismiss();
+  }
+  render() {
+    return (
+      <PopupDialog
+        ref="popDialog"
+        width={500}
+        height={260}
+        dismissOnTouchOutside={false}
+        dismissOnHardwareBackPress={false}
+        dialogTitle={
+          <DialogTitle
+            titleStyle={{
+              backgroundColor: commonStyle.color.primary,
+              color: "#fff"
+            }}
+            titleTextStyle={{ color: "#fff" }}
+            title={this.props.columnTitle}
+          />
+        }
+        dialogAnimation={slideAnimation}
+      >
+        <View style={styles.dialogBody}>
+          <Text style={styles.descText}>恭喜您，本章节学习完成！</Text>
+          <Text style={styles.descText}>
+            单词总数：{this.props.total}，生词：{this.props.errCount}
+          </Text>
+          <View style={styles.dialogBtns}>
+            <Button
+              light
+              style={[
+                styles.btn,
+                {
+                  display: this.props.showExam ? "flex" : "none"
+                }
+              ]}
+              onPress={() => {
+                this.refs.popDialog.dismiss();
+                this.props.onColumnExam && this.props.onColumnExam();
+              }}
+            >
+              <Text style={[styles.btnText]}>章节学后测试</Text>
+            </Button>
+            <Button
+              style={[
+                styles.btn,
+                {
+                  backgroundColor: commonStyle.color.primary
+                }
+              ]}
+              onPress={() => {
+                this.refs.popDialog.dismiss();
+                this.props.onContinue && this.props.onContinue();
+              }}
+            >
+              <Text style={[styles.btnText, { color: "#fff" }]}>继续学习</Text>
+            </Button>
+            <Button
+              light
+              style={[styles.btn]}
+              onPress={() => {
+                this.refs.popDialog.dismiss();
+                this.props.onReturn && this.props.onReturn();
+              }}
+            >
+              <Text style={styles.btnText}>返回我的课程</Text>
+            </Button>
+          </View>
+        </View>
+      </PopupDialog>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  dialogBody: {
+    padding: 10,
+    flex: 1,
+    position: "relative"
+  },
+  descText: {
+    lineHeight: 40,
+    fontSize: 16,
+    alignSelf: "center",
+    marginBottom: 10
+  },
+  dialogBtns: {
+    position: "absolute",
+    bottom: 10,
+    width: 500,
+    height: 60,
+    flexDirection: "row",
+    justifyContent: "space-around"
+  },
+  btn: {
+    // alignSelf: "center",
+    width: 150,
+    height: 50,
+    borderRadius: 10,
+    justifyContent: "center"
+  },
+  btnText: {
+    fontSize: 18
+  }
+});

@@ -1,0 +1,84 @@
+import React from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  Easing,
+  AsyncStorage
+} from "react-native";
+import Icon from "react-native-vector-icons/Ionicons";
+import commonStyle from "../globalStyle";
+
+import dataService from "../services";
+import { utility } from "../utility";
+import { syncController } from "../controller";
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      syncIconRotate: new Animated.Value(0)
+    };
+  }
+  componentDidMount() {
+    AsyncStorage.getItem("studentNo").then(studentNo => {
+      this.studentNo = studentNo;
+      syncController.syncAllBookToCloud(studentNo);
+      syncController.syncLearnRecordToCloud(this.studentNo);
+    });
+  }
+  syncBookInfo(bookNo) {
+    syncController.syncLocalBookToCloud(this.studentNo, bookNo, "default");
+  }
+  showSync() {
+    let TIMES = 20;
+    Animated.timing(this.state.syncIconRotate, {
+      toValue: 360 * TIMES,
+      duration: 800 * TIMES,
+      useNativeDriver: true,
+      easing: Easing.linear
+    }).start();
+  }
+  render() {
+    return (
+      <View style={styles.syncView}>
+        <Animated.View
+          style={{
+            transform: [
+              {
+                rotate: this.state.syncIconRotate.interpolate({
+                  inputRange: [0, 360],
+                  outputRange: ["0deg", "360deg"]
+                })
+              }
+            ]
+          }}
+        >
+          <Icon name="ios-sync" style={styles.syncIcon} />
+        </Animated.View>
+        <Text style={styles.syncText}>学习记录同步中...</Text>
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  syncView: {
+    width: "100%",
+    height: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end"
+  },
+  syncIcon: {
+    fontSize: 30,
+    color: "#fff"
+  },
+  syncText: {
+    color:'#fff',
+    // color: commonStyle.color.warning,
+    marginLeft: 10,
+    marginRight: 10
+  }
+});

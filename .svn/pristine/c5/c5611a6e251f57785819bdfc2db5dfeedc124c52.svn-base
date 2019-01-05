@@ -1,0 +1,295 @@
+import dataService from "../services";
+import booksDB from "../db/booksDB";
+import { utility } from "../utility";
+import Base64 from "crypto-js/enc-base64";
+import Utf8 from "crypto-js/enc-utf8";
+import { courseController } from ".";
+
+// 同步所有课本的学习数据到云端
+function syncAllBookToCloud(studentNo) {
+  console.log("===============syncAllBookToCloud...");
+  let syncBooks = [];
+  let currIdx = 0;
+  return new Promise((resolve, reject) => {
+    // 1. 获取所有的课本
+    booksDB.getNeedSyncBooks(studentNo).then(books => {
+      syncBooks = books;
+      if (syncBooks.length) {
+        _syncBookToCloudRecursion(resolve, reject);
+      }
+    });
+  });
+
+  // 递归同步课本信息
+  function _syncBookToCloudRecursion(resolve, reject) {
+    let currBookInfo = syncBooks[currIdx];
+    let bookNo = currBookInfo.bookNo;
+    syncLocalBookToCloud(studentNo, bookNo, "DEFAULT").then(
+      res => {
+        currIdx++;
+        if (currIdx < syncBooks.length) {
+          _syncBookToCloudRecursion(resolve, reject);
+        } else {
+          resolve();
+        }
+      },
+      err => {
+        reject(err);
+      }
+    );
+  }
+}
+
+// 同步数据到云端，一次最多取2000条数据
+function syncLocalBookToCloud(studentNo, bookNo, learnType = "DEFAULT") {
+  return new Promise((resolve, reject) => {
+    // 1. 查找要同步的数据，并拼接数据为指定的格式
+    _buildBookColumnsData(studentNo, bookNo, learnType)
+      .then(data => {
+        if (!data) {
+          resolve();
+          return;
+        }
+        let syncData = {
+          studentNo: studentNo,
+          bookNo: bookNo,
+          learnType: learnType,
+          columns: data
+        };
+        console.log("==========syncData...", JSON.stringify(syncData));
+        // 2. 调用同步接口
+        let base64Data = Base64.stringify(Utf8.parse(JSON.stringify(syncData)));
+        dataService.syncBookDataToCloud(base64Data).then(res => {
+          console.log("----------sync book..res..", res);
+          if (res.code === 200) {
+            // 3. 成功后更新数据库标识
+            courseController.signDBSyncFlag(syncData, "book").then(dbRes => {
+              console.log("-------------set db book flag success...", dbRes);
+              resolve();
+            });
+          }
+        });
+      })
+      .catch(e => {
+        reject(e);
+      });
+  });
+}
+
+// 同步学习记录到云端
+function syncLearnRecordToCloud(studentNo) {
+  return new Promise((resolve, reject) => {
+    booksDB.getSyncLearnRecords(studentNo).then(record => {
+      if (record.length === 0) {
+        resolve();
+        return;
+      }
+      let recordArr = [];
+      record.forEach(item => {
+        recordArr.push({
+          bookNo: item.bookNo,
+          learnType: item.learnType.toUpperCase(),
+          columnNo: item.columnNo,
+          rightNum: item.rightNum,
+          wrongNum: item.errorNum,
+          time: item.learnDate,
+          learnTimes: item.learnTimes,
+          learnedSeconds: item.learnedTime, // 当前单位ms
+          createTime: utility.dateStandardStrToShortStr(item.createTime)
+        });
+      });
+      let recordData = {
+        studentNo: studentNo,
+        records: recordArr
+      };
+      console.log(
+        "==========sync record...Data...",
+        JSON.stringify(recordData)
+      );
+      let base64Data = Base64.stringify(Utf8.parse(JSON.stringify(recordData)));
+      dataService.syncRecordToCloud(base64Data).then(res => {
+        console.log("----------sync record..res..", res);
+        if (res.code === 200) {
+          courseController.signDBSyncFlag(recordData, "learnRecord");
+        }
+      });
+    });
+  });
+}
+
+// 同步测试成绩到云端（逐条同步）
+// 试卷表有不同类型，分为选择题类型和拼写类型的试卷
+function syncLearnExamToCloud(studentNo) {
+  // 循环同步各个试卷成绩
+  let syncExams = [];
+  let currIdx = 0;
+  return new Promis((resolve, reject) => {
+    booksDB.getAllSyncExamList(studentNo).then(examlist => {
+      syncExams = examlist;
+      if (syncExams.length) {
+        _syncExamToCloudRecursion(resolve, reject);
+      }
+    });
+  });
+
+  // 递归同步测试记录到云端
+  function _syncExamToCloudRecursion(resolve, reject) {
+    let currExamRecord = syncExams[currIdx];
+    _syncLocalExamToCloud(studentNo, currExamRecord).then(
+      res => {
+        currIdx++;
+        if (currIdx < syncBooks.length) {
+          _syncExamToCloudRecursion(resolve, reject);
+        } else {
+          resolve();
+        }
+      },
+      err => {
+        reject(err);
+      }
+    );
+  }
+}
+
+function _syncLocalExamToCloud(studentNo, examData) {
+  return new Promise((resolve, reject) => {
+    let examId = examData.examId;
+    let examType = examData.examType;
+    let name = examData.name;
+    let startTime = utility.dateStandardStrToShortStr(examData.startTime);
+    let finishedTime = utility.dateStandardStrToShortStr(examData.finishedTime);
+    let score = examData.score;
+    let bookNo = examData.bookNo; // 课本测试时，毕传参数
+    booksDB.getSyncExamDetails(examId, examType).then(details => {
+      // 1. 构建同步数据
+      let syncExamData = {
+        studentNo: studentNo,
+        syncId: examId,
+        examType: examType,
+        name: examData.name,
+        createTime: startTime,
+        startTime: startTime,
+        finishedTime: finishedTime
+      };
+      if (examType.indexOf("SPELL") > -1) {
+        // 拼写测试
+        let records = [];
+        details.forEach(item => {
+          records.push({
+            bookNo: item.bookNo,
+            columnNo: item.columnNo,
+            wordNo: item.wordNo,
+            word: item.word,
+            chinese: item.chinese,
+            answer: item.answer,
+            finishedTime: utility.dateStandardStrToShortStr(item.finishedTime)
+          });
+        });
+      } else {
+      }
+      // 2. 数据异常处理，并更新到本地数据库
+      // 3. 调用同步接口
+      // 4. 成功后调用同步synced 接口
+    });
+  });
+}
+
+// 构造课本中要同步的信息
+function _buildBookColumnsData(studentNo, bookNo, learnType) {
+  return new Promise((resolve, reject) => {
+    //   1.1 课本获取栏目信息（正确词、错误数量）
+    booksDB
+      .getSyncColumnInfos(studentNo, bookNo, learnType, true)
+      .then(columns => {
+        //   1.2 获取栏目已学会的单词信息，获取栏目的错词信息
+        console.log("=======columns...", columns);
+        let columnArr = [];
+        let rightCount = 0;
+        let errCount = 0;
+        let totalCount = columns.length;
+        if (columns.length === 0) {
+          resolve();
+        }
+        columns.forEach(column => {
+          columnArr.push({
+            columnNo: column.columnNo,
+            rightNum: column.rightNum,
+            wrongNum: column.errorNum,
+            status: column.status,
+            createTime: utility.dateStandardStrToShortStr(column.createTime),
+            updateTime: utility.dateStandardStrToShortStr(column.updateTime)
+          });
+          let columnNo = column.columnNo;
+          booksDB
+            .getSyncColumnRightWords(studentNo, bookNo, columnNo, learnType)
+            .then(rightWords => {
+              let columnInfo = columnArr.find(item => {
+                return item.columnNo === columnNo;
+              });
+              let learns = [];
+              rightWords.forEach(right => {
+                console.log("----------------right....", right.createTime);
+                learns.push({
+                  wordNo: right.wordNo,
+                  status: "ENABLED",
+                  learnedTime: utility.dateStandardStrToShortStr(
+                    right.createTime
+                  ),
+                  learnedSeconds: right.learnedTime
+                });
+              });
+              columnInfo["learns"] = learns;
+              rightCount++;
+              if (errCount === totalCount && rightCount === totalCount) {
+                resolve(columnArr);
+              }
+            });
+          booksDB
+            .getSyncColumnErrWords(studentNo, bookNo, columnNo, learnType)
+            .then(errWords => {
+              let columnInfo = columnArr.find(item => {
+                return item.columnNo === columnNo;
+              });
+              let errors = [];
+              errWords.forEach(error => {
+                errors.push({
+                  wordNo: error.wordNo,
+                  status: "ENABLED",
+                  createTime: utility.dateStandardStrToShortStr(
+                    error.createTime
+                  ),
+                  reviewNum: error.reviewNum,
+                  reviewOneTime: utility.dateStandardStrToShortStr(
+                    error.reviewOneTime
+                  ),
+                  reviewTwoTime: utility.dateStandardStrToShortStr(
+                    error.reviewTwoTime
+                  ),
+                  reviewThreeTime: utility.dateStandardStrToShortStr(
+                    error.reviewThreeTime
+                  ),
+                  reviewFourTime: utility.dateStandardStrToShortStr(
+                    error.reviewFourTime
+                  ),
+                  reviewFiveTime: utility.dateStandardStrToShortStr(
+                    error.reviewFiveTime
+                  )
+                });
+              });
+              columnInfo["wordNodes"] = errors;
+              errCount++;
+              if (errCount === totalCount && rightCount === totalCount) {
+                resolve(columnArr);
+              }
+            });
+        });
+      });
+  });
+}
+
+export default {
+  syncAllBookToCloud,
+  syncLocalBookToCloud,
+  syncLearnRecordToCloud,
+  syncLearnExamToCloud
+};

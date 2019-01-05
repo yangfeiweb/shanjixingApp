@@ -1,0 +1,252 @@
+import React, { Component } from "react";
+import {
+  View,
+  StyleSheet,
+  processColor,
+  AsyncStorage,
+  ScrollView
+} from "react-native";
+import {
+  Content,
+  Text,
+  Grid,
+  Col,
+  Row,
+  Picker,
+  Item,
+  Form,
+  Body
+} from "native-base";
+import {
+  VictoryChart,
+  VictoryGroup,
+  VictoryBar,
+  VictoryTheme,
+  VictoryZoomContainer
+} from "victory-native";
+import DatePicker from "react-native-datepicker";
+import chartStyle from "./chartStyle";
+import { utility } from "../../../utility";
+import { learnController } from "../../../controller";
+
+export default class ChartByYear extends Component {
+  constructor(props) {
+    super(props);
+  }
+  componentDidMount() {
+    let year = new Date().getFullYear();
+    this.setState({
+      time: `${year}年`
+    });
+    this.getLearnRecord(year);
+  }
+  state = {
+    selected: undefined,
+    barChartWidth: 0,
+    date: utility.dateToDateStr(new Date()),
+    totalMinute: 0,
+    totalNum: 0,
+    time: "2018年",
+    months: [
+      "1月",
+      "2月",
+      "3月",
+      "4月",
+      "5月",
+      "6月",
+      "7月",
+      "8月",
+      "9月",
+      "10月",
+      "11月",
+      "12月"
+    ],
+    studyTime: [], //学习时长
+    studyWordNum: [], //学习单词数量
+    maxDomainY: 50
+  };
+
+  selectDate(date) {
+    let year = new Date(date).getFullYear();
+    this.getLearnRecord(year);
+  }
+  getLearnRecord(year) {
+    const { showLoading, hideLoading } = this.props;
+    showLoading && showLoading();
+    let startTime = year + "-01-01T00:00:00";
+    let endTime = year + "-12-31T23:59:59";
+    let start = utility.dateToTimeStr(new Date(startTime));
+    let end = utility.dateToTimeStr(new Date(endTime));
+    AsyncStorage.getItem("studentNo")
+      .then(studentNo => {
+        if (studentNo) {
+          let totalMinute = 0;
+          let totalNum = 0;
+          let studyTime = []; //学习时长
+          let studyWordNum = []; //学习单词数量
+          let maxDomainY = 0;
+          learnController
+            .getLearnStatistics(studentNo, start, end)
+            .then(res => {
+              if (res) {
+                let arr = this.dayToMonth(res);
+                arr &&
+                  arr.forEach((item, index) => {
+                    if (!studyWordNum[index]) {
+                      studyWordNum[index] = {
+                        x: this.state.months[index],
+                        y: 0
+                      };
+                      studyTime[index] = { x: this.state.months[index], y: 0 };
+                    }
+                    let m = Math.ceil(item.learnedTime / 1000 / 60); //学习的时长 ----单位分钟
+                    totalMinute += m;
+                    if (maxDomainY < m) {
+                      maxDomainY = m;
+                    }
+                    let num = item.rightNum;
+                    if (maxDomainY < num) {
+                      maxDomainY = num;
+                    }
+                    totalNum += num;
+                    studyWordNum[index].y = num;
+                    studyTime[index].y = m;
+                  });
+                maxDomainY += 20;
+                this.setState({
+                  time: year + "年",
+                  totalMinute: totalMinute,
+                  totalNum: totalNum,
+                  maxDomainY: maxDomainY,
+                  studyWordNum: studyWordNum,
+                  studyTime: studyTime
+                });
+              }
+              hideLoading && hideLoading();
+            })
+            .catch(err => {
+              hideLoading && hideLoading();
+            });
+        }
+      })
+      .catch(err => {
+        hideLoading && hideLoading();
+      });
+  }
+  dayToMonth(data) {
+    //将一天天的数据整合到月里
+    if (Array.isArray(data)) {
+      let arr = [];
+      for (let index = 0; index < 12; index++) {
+        arr.push({
+          errorNum: 0,
+          learnTimes: 0,
+          learnedTime: 0,
+          rightNum: 0
+        });
+      }
+      data.forEach(item => {
+        if (item) {
+          let month = new Date(item["date(createTime)"]).getMonth();
+          arr[month].errorNum += item.errorNum;
+          arr[month].learnTimes += item.learnTimes;
+          arr[month].learnedTime += item.learnedTime;
+          arr[month].rightNum += item.rightNum;
+        }
+      });
+      return arr;
+    }
+  }
+
+  render() {
+    return (
+      <Content>
+        <View style={chartStyle.content}>
+          <Grid>
+            <Row style={{ height: 40 }}>
+              <Col style={chartStyle.container}>
+                <View style={chartStyle.container}>
+                  <View
+                    style={[
+                      chartStyle.black,
+                      { backgroundColor: "#56BDFF", marginRight: 10 }
+                    ]}
+                  />
+                  <Text style={chartStyle.text}>
+                    学习时间 (分钟):{this.state.totalMinute}
+                  </Text>
+                </View>
+                <View style={[{ marginLeft: 10 }, chartStyle.container]}>
+                  <View
+                    style={[
+                      chartStyle.black,
+                      { backgroundColor: "#FFF553", marginRight: 10 }
+                    ]}
+                  />
+                  <Text style={chartStyle.text}>
+                    单词数量 (个):{this.state.totalNum}
+                  </Text>
+                </View>
+              </Col>
+              <Col style={{ alignItems: "center", justifyContent: "center" }}>
+                <Text style={chartStyle.text}>{this.state.time}</Text>
+                <DatePicker
+                  date={this.state.date}
+                  style={{ width: "100%", position: "absolute" }}
+                  format="YYYY-MM-DD"
+                  minDate="2017-01-01"
+                  mode="date"
+                  androidMode="calendar"
+                  showIcon={false}
+                  hideText={true}
+                  maxDate={utility.dateToDateStr(new Date())}
+                  onDateChange={date => {
+                    this.selectDate(date);
+                  }}
+                />
+              </Col>
+              <Col
+                style={{ alignItems: "flex-end", justifyContent: "center" }}
+              />
+            </Row>
+          </Grid>
+          <View style={{ height: 350 }}>
+            <View style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+              <ScrollView
+                horizontal
+                style={{ width: "100%", height: "100%" }}
+                showsHorizontalScrollIndicator={false}
+              >
+                <VictoryChart
+                  height={340}
+                  domain={{ x: [0, 12], y: [0, this.state.maxDomainY] }}
+                >
+                  <VictoryGroup
+                    padding={0}
+                    offset={20}
+                    samples={100}
+                    categories={{ x: this.state.months }}
+                    colorScale={["#56BDFF", "#FFF553"]}
+                  >
+                    <VictoryBar
+                      padding={0}
+                      width={10}
+                      labels={d => d.y}
+                      data={this.state.studyTime}
+                    />
+                    <VictoryBar
+                      width={10}
+                      padding={0}
+                      labels={d => d.y}
+                      data={this.state.studyWordNum}
+                    />
+                  </VictoryGroup>
+                </VictoryChart>
+              </ScrollView>
+            </View>
+          </View>
+        </View>
+      </Content>
+    );
+  }
+}

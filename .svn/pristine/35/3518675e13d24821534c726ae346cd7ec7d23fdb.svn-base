@@ -1,0 +1,457 @@
+import React, { Component } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Animated
+} from "react-native";
+import PropTypes from "prop-types";
+import TopicItem from "./TopicItem";
+import ProgressBar from "./ProgressBar";
+import globalStyle from "../globalStyle";
+import { utility, SoundManage } from "../utility";
+
+let soundManage = new SoundManage();
+/**
+ * 单词测试的测试逻辑
+ */
+export default class extends Component {
+  constructor(props) {
+    super(props);
+    this.topicItems = [];
+    this.length = 0;
+    this.isClick = false;
+    this.currIndex = 0;
+    this.currWord = null;
+    this.isPause = false;
+    this.rigthTimer = null;
+    this.errorTimer = null;
+    this.progressBar = null; //进度条
+    this.wordList = null; //测试的单词列表
+    this.startTime = null;
+    this.isBack = false;
+    this.noAnswer = 0; //未作答的个数
+    this.playTimer = null;
+    this.state = {
+      title: props.title,
+      data: [],
+      opacity: 0,
+      height: new Animated.Value(0),
+      disabled: false,
+      word: {},
+      pauseBtnOpacity: 0,
+      rightScore: 0, //正确得分
+      errorScore: 0, //错误得分
+      currProgress: 0,
+      totalNumber: 0, //测试的总数据量
+      pauseBtnText: "暂停"
+    };
+  }
+  static propTypes = {
+    result: PropTypes.func, //测试结束返回测试结果的函数
+    showBtn: PropTypes.func, //显示控制按钮
+    hideBtn: PropTypes.func //隐藏控制按钮
+  };
+  componentWillUnmount() {
+    this.isBack = true;
+    this.isPause = true;
+    this.clearErrorTimer();
+    this.clearRightTimer();
+    this.clearPlayTimer();
+    if (this.disabledTimer) {
+      clearTimeout(this.disabledTimer);
+      this.disabledTimer = null;
+    }
+  }
+
+  shouldComponentUpdate() {
+    return !this.isBack;
+  }
+  setData(words) {
+    //设置数据
+    if (!Array.isArray(words)) {
+      return;
+    }
+    this.length = words.length;
+    let arr = [];
+    let letter = ["A", "B", "C", "D"];
+    words.forEach(item => {
+      if (item) {
+        let topics = [
+          { topic: item.correct, right: true },
+          { topic: item.error1, right: false },
+          { topic: item.error2, right: false },
+          { topic: item.error3, right: false }
+        ];
+        topics = utility.shuffle(topics);
+        topics.forEach((tocp, index) => {
+          tocp.letter = letter[index];
+        });
+        let obj = {
+          id: item.id || "",
+          word: item.word,
+          topics: topics,
+          selected: null //已选择的
+        };
+        if (item.wordNo) {
+          obj["wordNo"] = item.wordNo;
+        }
+        arr.push(obj);
+      }
+    });
+    let len = arr.length;
+    this.wordList = arr;
+    this.setState(
+      {
+        opacity: 1,
+        totalNumber: len
+      },
+      () => {
+        this.startTime = utility.dateToTimeStr(new Date());
+        this.next();
+      }
+    );
+  }
+  next() {
+    //下一个
+    if (!this.isPause) {
+      if (this.currIndex < this.length) {
+        this.isClick = false;
+        let n = (this.currIndex + 1) / this.state.totalNumber * 100;
+        this.currWord = this.wordList[this.currIndex];
+        this.setState(
+          { word: this.currWord, pauseBtnOpacity: 0, currProgress: n },
+          () => {
+            this.progressBar.cutDownStart(); //倒计时
+            if (this.state.disabled) {
+              this.disabledTimer = setTimeout(() => {
+                this.setState({ disabled: false }); //下一个之后稍等一下，才能点
+                if (this.disabledTimer) {
+                  clearTimeout(this.disabledTimer);
+                  this.disabledTimer = null;
+                }
+              }, 500);
+            }
+            this.topicItems.forEach(item => {
+              item && item.reset();
+            });
+          }
+        );
+        this.currIndex++;
+      } else {
+        this.end();
+      }
+    }
+  }
+
+  pauseBtn() {
+    //暂停或开始
+    if (this.state.pauseBtnOpacity === 0) {
+      return;
+    }
+    if (!this.state.testEnd) {
+      if (this.isPause) {
+        this.play();
+      } else {
+        this.pause();
+      }
+    } else {
+      //重新开始
+      // this.props.navigation.goBack()
+    }
+  }
+  pause() {
+    //暂停
+    this.isPause = true;
+    this.setState({ pauseBtnText: "继续测试" });
+    this.clearErrorTimer();
+    this.clearRightTimer();
+  }
+
+  play() {
+    //开始
+    this.isPause = false;
+    this.setState({ pauseBtnText: "暂停" });
+    this.playTimer = setTimeout(() => {
+      this.next();
+      this.clearPlayTimer();
+    }, 200);
+  }
+  clearPlayTimer() {
+    if (this.playTimer) {
+      clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
+  }
+  onCutDownOver() {
+    if (!this.isPause && !this.isClick) {
+      soundManage.play("next");
+      this.noAnswer++;
+      this.setState({
+        errorScore: this.state.errorScore + 1,
+        disabled: true,
+        pauseBtnOpacity: 1
+      });
+      this.currWord.selected = "none";
+      this.topicItems.forEach(item => {
+        item && item.showRight(); //展示正确答案
+      });
+      this.errorTimer = setTimeout(() => {
+        //延迟二秒
+        this.clearErrorTimer();
+        this.next();
+      }, 1000);
+    }
+  }
+  answerRight() {
+    soundManage.play("success");
+    this.setState({
+      rightScore: ++this.state.rightScore
+    });
+    this.rigthTimer = setTimeout(() => {
+      this.next();
+      this.clearRightTimer();
+    }, 700);
+  }
+  answerError() {
+    soundManage.play("error");
+    this.setState({
+      errorScore: ++this.state.errorScore,
+      pauseBtnOpacity: 1
+    });
+
+    this.topicItems.forEach(item => {
+      item && item.showRight(); //展示正确答案
+    });
+    this.errorTimer = setTimeout(() => {
+      //延迟1.5秒进入下一题
+      this.next();
+      this.clearErrorTimer();
+    }, 1500);
+  }
+  //用户点击之后的结果的返回 isRight bool值 true表示正确 selected表示选的是 A,B,,C,D中的一个
+  resultAfter({ isRight, selected }) {
+    this.isClick = true;
+    this.currWord.selected = selected;
+    this.progressBar.cutDownStop();
+    this.setState({ disabled: true }, () => {
+      if (isRight) {
+        this.answerRight();
+      } else {
+        this.answerError();
+      }
+    });
+  }
+  end() {
+    //test结束
+    let finishedTime = utility.dateToTimeStr(new Date());
+    let result = {
+      startTime: this.startTime,
+      finishedTime: finishedTime,
+      rightScore: this.state.rightScore,
+      errorScore: this.state.errorScore,
+      noAnswer: this.noAnswer,
+      wordList: this.wordList,
+      total: this.state.totalNumber
+    };
+    this.props.result && this.props.result(result);
+  }
+  clearRightTimer() {
+    if (this.rigthTimer) {
+      clearTimeout(this.rigthTimer);
+      this.rigthTimer = null;
+    }
+  }
+  clearErrorTimer() {
+    if (this.errorTimer) {
+      clearTimeout(this.errorTimer);
+      this.errorTimer = null;
+    }
+  }
+  _renderTopics() {
+    this.topicItems = [];
+    let topics = this.state.word.topics;
+    if (topics) {
+      return topics.map((item, index) => (
+        <TopicItem
+          ref={ref => {
+            ref && this.topicItems.push(ref);
+          }}
+          key={index}
+          content={item}
+          right={item.right}
+          disabled={this.state.disabled}
+          result={this.resultAfter.bind(this)}
+        />
+      ));
+    } else {
+      return null;
+    }
+  }
+  progressDidRender() {}
+  __renderTest() {
+    return (
+      <View style={[styles.AnimatedView]}>
+        <View>
+          <Text style={styles.wordText}>{this.state.word.word}</Text>
+        </View>
+        <View style={{ width: "50%", height: 5, opacity: this.state.opacity }}>
+          <ProgressBar
+            barStyle={{
+              height: 5,
+              borderRadius: 5,
+              hideText: true,
+              barColor: globalStyle.color.danger,
+              bgColor: "#EEEEEE"
+            }}
+            ref={ref => {
+              this.progressBar = ref;
+            }}
+            onDidRender={this.progressDidRender.bind(this)}
+            cutDownMode={true}
+            onCutDownOver={this.onCutDownOver.bind(this)}
+          />
+        </View>
+        <View style={styles.topicsBox}>{this._renderTopics()}</View>
+      </View>
+    );
+  }
+  render() {
+    let barStyle = {
+      height: 10,
+      barColor: "#06B025",
+      textColor: "transparent"
+    };
+    return (
+      <View style={styles.container}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={{ width: "100%" }}
+        >
+          <View style={styles.title}>
+            <View>
+              <Text>
+                {this.state.title} (题量:{this.state.totalNumber})
+              </Text>
+            </View>
+            <View
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                flex: 1
+              }}
+            >
+              <View style={styles.progressBarContainer}>
+                <ProgressBar
+                  progress={this.state.currProgress}
+                  barStyle={barStyle}
+                />
+              </View>
+            </View>
+            <View style={styles.rightNum}>
+              <View style={{ marginRight: 5 }}>
+                <Text style={{ color: "#56BDFF" }}>
+                  正确:{this.state.rightScore}
+                </Text>
+              </View>
+              <View>
+                <Text style={{ color: "#FF7676" }}>
+                  错误:{this.state.errorScore}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={[
+              styles.container,
+              { height: 400, width: "100%", justifyContent: "center" }
+            ]}
+          >
+            {this.__renderTest()}
+          </View>
+        </ScrollView>
+        <View style={[styles.footer, { opacity: this.state.pauseBtnOpacity }]}>
+          <TouchableOpacity
+            onPress={this.pauseBtn.bind(this)}
+            style={styles.pauseBtn}
+            activeOpacity={1}
+          >
+            <Text style={{ color: "#ffffff" }}>{this.state.pauseBtnText}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center"
+  },
+  title: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10
+    // paddingHorizontal: 30
+  },
+  wordText: {
+    fontSize: 36,
+    fontWeight: "bold",
+    color: globalStyle.color.primary
+  },
+  AnimatedView: {
+    width: "100%",
+    alignItems: "center"
+  },
+  resultView: {
+    height: 300,
+    // position: "absolute",
+    // top: 0,
+    // left: "50%",
+    justifyContent: "space-around"
+  },
+  pauseBtn: {
+    width: 180,
+    backgroundColor: globalStyle.color.primary,
+    borderRadius: 5,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  rightNum: {
+    width: 200,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  footer: {
+    width: "100%",
+    height: 70,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 30,
+    alignItems: "flex-end",
+    justifyContent: "center"
+  },
+  topicsBox: {
+    width: "70%",
+    marginTop: 30
+  },
+  resultTitle: {
+    color: globalStyle.color.primary,
+    fontSize: 30,
+    fontWeight: "400"
+  },
+  progressBarContainer: {
+    width: "70%",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row"
+  }
+});

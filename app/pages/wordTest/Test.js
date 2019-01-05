@@ -1,0 +1,419 @@
+import React, { Component } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Animated,
+  ToastAndroid
+} from "react-native";
+import _ from "lodash";
+import Icons from "react-native-vector-icons/Entypo";
+import { Header, Loading, ProgressBar } from "../../components";
+import { wordTestDB } from "../../db";
+import TopicItem from "./children/TopicItem";
+import globalStyle from "../../globalStyle";
+
+const db = new wordTestDB();
+export default class Test extends Component {
+  constructor(props) {
+    super(props);
+    this.Loading = null;
+    this.testEnd = false; //测试是否结束
+    this.isClick = false; //用户是否idanji
+    this.wordList = null;
+    this.currIndex = 0;
+    this.isPause = false;
+    this.progressBar = null; //进度条
+    this.wordsLength = 0; //总共单词的个数
+    this.topicItems = []; //存放四个答题项组建
+    this.errorTimer = null;
+    this.rightTimer = null;
+  }
+  state = {
+    gradeText: "综合测试",
+    pauseBtnText: "暂停",
+    errorNumber: 0,
+    rightNumber: 0,
+    currWord: {
+      word: "",
+      topics: []
+    },
+    disabled: false, //禁止点击所有项
+    pauseBtnOpacity: 0,
+    opacity: 0,
+    translateX: 0,
+    resultViewHeight: new Animated.Value(0),
+    topicsBoxOpacity: new Animated.Value(1)
+  };
+  componentDidMount() {
+    const { state } = this.props.navigation;
+    let { name, grade } = state.params;
+    this.setState({
+      gradeText: name
+    });
+    this.Loading.show();
+    let params = grade + `='1'`;
+    db.getData(params).then(
+      res => {
+        this.Loading.hide();
+      },
+      err => {
+        this.Loading.hide();
+      }
+    );
+    // setTimeout(() => {
+    //     this.setState({ opacity: 1 })
+    //     this.next()
+    // }, 500);
+  }
+  settleTopic(words) {
+    //将拿过来的单词整理成一个个的题目存放
+    let arr = [];
+    let letter = ["A", "B", "C", "D"];
+    words.forEach(item => {
+      let topics = [
+        { topic: item.correct, right: true },
+        { topic: item.error1, right: false },
+        { topic: item.error2, right: false },
+        { topic: item.error3, right: false }
+      ];
+      topics.forEach((tocp, index) => {
+        tocp.letter = letter[index];
+      });
+      topics = _.shuffle(topics);
+      let obj = {
+        word: item.word,
+        topics: topics
+      };
+      arr.push(obj);
+    });
+    this.wordList = arr;
+  }
+  next() {
+    //下一个
+    if (!this.isPause) {
+      if (this.currIndex < this.wordsLength) {
+        ToastAndroid.show("next begin", ToastAndroid.SHORT);
+        this.isClick = false; //将是否点击的置为false
+        let word = this.wordList[this.currIndex];
+        this.setState(
+          { currWord: word, disabled: false, pauseBtnOpacity: 0 },
+          () => {
+            this.progressBar.cutDownStart(); //倒计时
+            ToastAndroid.show("next over", ToastAndroid.SHORT);
+          }
+        );
+        this.topicItems.forEach(item => {
+          item && item.reset();
+        });
+        this.currIndex++;
+      } else {
+        ToastAndroid.show("complete", ToastAndroid.SHORT);
+        this.testEnd = true;
+        this.showResult(0, 1);
+        this.setState({ pauseBtnText: "重新测试" });
+      }
+    }
+  }
+  showResult(opacity, height, callback) {
+    Animated.parallel([
+      Animated.timing(this.state.topicsBoxOpacity, {
+        duration: 100,
+        toValue: opacity,
+        useNativeDriver: true
+      }),
+      Animated.timing(this.state.resultViewHeight, {
+        duration: 100,
+        toValue: height,
+        useNativeDriver: true
+      })
+    ]).start(() => {
+      callback && callback();
+    });
+  }
+  pauseBtn() {
+    //暂停或开始
+    if (!this.testEnd) {
+      if (this.isPause) {
+        this.beginTest();
+      } else {
+        this.pauseTest();
+        this.clearRightTimer();
+        this.clearErrorTimer();
+      }
+    } else {
+      //重新开始
+      this.testEnd = false;
+      this.isPause = false;
+      this.currIndex = 0;
+      this.showResult(1, 0);
+      this.setState(
+        { pauseBtnText: "暂停", rightNumber: 0, errorNumber: 0 },
+        () => {
+          this.next();
+        }
+      );
+    }
+  }
+  beginTest() {
+    //开始
+    ToastAndroid.show("beginTest", ToastAndroid.SHORT);
+    this.isPause = false;
+    this.currIndex++;
+    if (this.isClick) {
+      this.next();
+    } else {
+      this.progressBar.cutDownStart(true);
+    }
+    this.setState({ pauseBtnText: "暂停", disabled: false }, () => {
+      ToastAndroid.show("beginTest over", ToastAndroid.SHORT);
+    });
+  }
+  pauseTest() {
+    //暂停
+    this.isPause = true;
+    this.setState({ pauseBtnText: "继续测试", disabled: true });
+    this.progressBar.cutDownStop();
+  }
+  onCutDownOver() {
+    //规定时间内未答
+    // ToastAndroid.show('onCutDownOver', ToastAndroid.SHORT)
+    if (!this.isPause && !this.isClick) {
+      this.anwserError();
+    }
+  }
+
+  anwserRight() {
+    //答对
+    this.setState(
+      {
+        rightNumber: ++this.state.rightNumber
+      },
+      () => {
+        this.rigthTimer = setTimeout(() => {
+          this.clearRightTimer();
+          this.next();
+        }, 500);
+      }
+    );
+  }
+  clearRightTimer() {
+    if (this.rigthTimer) {
+      clearTimeout(this.rigthTimer);
+      this.rigthTimer = null;
+    }
+  }
+  clearErrorTimer() {
+    if (this.errorTimer) {
+      clearTimeout(this.errorTimer);
+      this.errorTimer = null;
+    }
+  }
+  anwserError() {
+    //答错
+    this.setState({
+      errorNumber: ++this.state.errorNumber,
+      pauseBtnOpacity: 1
+    });
+    this.topicItems.forEach(item => {
+      item && item.showRight(); //展示正确答案
+    });
+    this.errorTimer = setTimeout(() => {
+      //延迟2秒进入下一题
+      this.next();
+      this.clearErrorTimer();
+    }, 2000);
+  }
+  resultAfter(res) {
+    //用户点击之后的结果返回到此
+    // ToastAndroid.show('result', ToastAndroid.SHORT)
+    this.isClick = true; //将是否点击的置为true
+    this.progressBar.cutDownStop();
+    this.setState({ disabled: true }, () => {
+      if (res) {
+        //答题正确
+        this.anwserRight();
+      } else {
+        //答题错误
+        this.anwserError();
+      }
+    });
+  }
+  onResultLayout(e) {
+    const { width } = e.nativeEvent.layout;
+    this.setState({ translateX: -width / 2 });
+  }
+  render() {
+    let barStyle = {
+      height: 5,
+      borderRadius: 5,
+      hideText: true,
+      barColor: globalStyle.color.danger,
+      bgColor: "#EEEEEE"
+    };
+    return (
+      <View style={{ flex: 1 }}>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <Header title="词汇测试" />
+          <View style={styles.title}>
+            <Text>等级:{this.state.gradeText}</Text>
+            <View style={styles.rightNum}>
+              <View style={{ marginRight: 5, width: 100 }}>
+                <Text style={{ color: "#56BDFF" }}>
+                  正确:{this.state.rightNumber}
+                </Text>
+              </View>
+              <View style={{ width: 100 }}>
+                <Text style={{ color: "#FF7676" }}>
+                  错误:{this.state.errorNumber}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={[styles.container, { height: 400 }]}>
+            <Animated.View
+              style={[
+                styles.AnimatedView,
+                { opacity: this.state.topicsBoxOpacity }
+              ]}
+            >
+              <View>
+                <Text style={styles.wordText}>{this.state.currWord.word}</Text>
+              </View>
+              <View
+                style={{ width: "50%", height: 5, opacity: this.state.opacity }}
+              >
+                <ProgressBar
+                  barStyle={barStyle}
+                  ref={ref => {
+                    this.progressBar = ref;
+                  }}
+                  cutDownMode={true}
+                  onCutDownOver={this.onCutDownOver.bind(this)}
+                />
+              </View>
+              <View style={styles.topicsBox}>
+                {this.state.currWord.topics.map((item, index) => (
+                  <TopicItem
+                    ref={ref => {
+                      this.topicItems.push(ref);
+                    }}
+                    key={index}
+                    content={item}
+                    right={item.right}
+                    disabled={this.state.disabled}
+                    result={this.resultAfter.bind(this)}
+                  />
+                ))}
+              </View>
+            </Animated.View>
+            <Animated.View
+              onLayout={this.onResultLayout.bind(this)}
+              style={[
+                {
+                  transform: [{ translateX: this.state.translateX }],
+                  opacity: this.state.resultViewHeight
+                },
+                styles.AnimatedView,
+                styles.resultView
+              ]}
+            >
+              <View>
+                <Text style={styles.resultTitle}>词汇量测试结果</Text>
+              </View>
+              <View style={{ alignItems: "center" }}>
+                <Icons name="emoji-flirt" size={100} color="#BFBFBF" />
+                <Text style={{ fontSize: 12, color: "#BFBFBF", marginTop: 10 }}>
+                  您的单词的正确数量为:{this.state.rightNumber} 个
+                </Text>
+              </View>
+              <View>
+                <Text style={{ fontSize: 20, color: "#555555" }}>
+                  哇！太棒了 给你点赞 要坚持下去！
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
+          <View
+            style={[styles.footer, { opacity: this.state.pauseBtnOpacity }]}
+          >
+            <TouchableOpacity
+              onPress={this.pauseBtn.bind(this)}
+              style={[styles.pauseBtn]}
+              activeOpacity={1}
+            >
+              <Text style={{ color: "#ffffff" }}>
+                {this.state.pauseBtnText}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+        <Loading
+          ref={ref => {
+            this.Loading = ref;
+          }}
+        />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center"
+  },
+  title: {
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 30
+  },
+  wordText: {
+    fontSize: 30,
+    fontWeight: "bold",
+    color: globalStyle.color.primary
+  },
+  AnimatedView: {
+    width: "60%",
+    alignItems: "center"
+  },
+  resultView: {
+    height: 300,
+    position: "absolute",
+    top: 0,
+    left: "50%",
+    justifyContent: "space-around"
+  },
+  pauseBtn: {
+    width: 150,
+    backgroundColor: globalStyle.color.primary,
+    borderRadius: 5,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  rightNum: {
+    flex: 1,
+    paddingHorizontal: 50,
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  footer: {
+    height: 70,
+    paddingHorizontal: 30,
+    alignItems: "flex-end",
+    justifyContent: "center"
+  },
+  topicsBox: {
+    width: "70%",
+    marginTop: 30
+  },
+  resultTitle: {
+    color: globalStyle.color.primary,
+    fontSize: 26,
+    fontWeight: "400"
+  }
+});

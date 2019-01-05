@@ -1,0 +1,101 @@
+import DeviceInfo from "react-native-device-info";
+import { AsyncStorage, DeviceEventEmitter } from "react-native";
+import MD5 from "crypto-js/md5";
+import utility from "./utility";
+let token = "";
+export default function(url, params = {}, methodType = "GET", headers = {}) {
+  let task = request(url, params, methodType, headers);
+  task.then(
+    res => {
+      let code = res.code;
+      let msg = res.msg;
+      if (code === 200) {
+        let index = url.indexOf("login");
+        if (index !== -1) {
+          let data = res.data;
+          token = data.token;
+        }
+        if (url.indexOf("logout") !== -1) {
+          token = "";
+        }
+      } else if (code === 401) {
+        // 登录过期，重新自动登录
+      } else if (code === 402) {
+        utility.Toast("账号在其他地方登陆！");
+        DeviceEventEmitter.emit("gotoLogin");
+      }
+    },
+    err => {
+      utility.Toast("网络不佳，请稍候重试");
+      console.log("-----------err:", err);
+    }
+  );
+  return task;
+}
+function request(url, params = {}, methodType = "GET", headers = {}) {
+  if (token) {
+    params["token"] = token;
+  }
+  params["version"] = "1.0.0";
+  params["ts"] = utility.getTs();
+  let sign = getRequestSign(params);
+  params["sign"] = sign;
+  if (methodType.toUpperCase() === "GET") {
+    headers = Object.assign(headers, {
+      "Content-Type": "application/json",
+      "User-Agent": DeviceInfo.getUserAgent()
+    });
+    let paramArr = [];
+    for (let key in params) {
+      let val = params[key];
+      paramArr.push(`${key}=${val}`);
+    }
+    if (paramArr.length > 0) {
+      url = url + `?${paramArr.join("&")}`;
+    }
+    console.log("-------http----get...", url);
+    return fetch(url, {
+      method: "GET",
+      headers: headers
+    }).then(response => response.json());
+  } else if (methodType.toUpperCase() === "POST") {
+    headers = Object.assign(headers, {
+      "Content-Type": "multipart/form-data;charset=UTF-8",
+      "User-Agent": DeviceInfo.getUserAgent()
+    });
+
+    let formData = new FormData();
+    for (let key in params) {
+      formData.append(key, params[key]);
+    }
+    console.log("--------formData", formData);
+    return fetch(url, {
+      method: "POST",
+      headers: headers,
+      body: formData
+    }).then(response => response.json());
+  }
+}
+
+export function getRequestSign(params) {
+  if (!params) {
+    params = {};
+  }
+  let paramArr = [];
+  for (let key in params) {
+    let val = params[key];
+    if (val !== undefined && val !== null && val !== "") {
+      paramArr.push(`${key}=${val}`);
+    }
+  }
+  paramArr.sort();
+
+  let key = "03c408b46416692e961e8e6accc23d26";
+  // let key = "111111";
+  // if (process.env.NODE_ENV === 'production') {
+  /* key =
+     'aEpPb3dld2w3QU1BdGI2aTQyMWxYNlRxRW81WTFWd3BOSlRMaXUyU3RUeWZMcm9VQ0Z1TG5qalhpSWdhM25OZw=='
+   // }*/
+  let paramStr = paramArr.join("&") + `&key=${key}`;
+  return MD5(paramStr).toString();
+}

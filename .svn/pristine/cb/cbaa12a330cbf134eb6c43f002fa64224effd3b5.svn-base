@@ -1,0 +1,217 @@
+import React, { Component } from "react";
+import {
+  View,
+  StyleSheet,
+  AsyncStorage,
+  Image,
+  ImageBackground
+} from "react-native";
+import { Button, Text, Icon } from "native-base";
+import { NavigationActions } from "react-navigation";
+import { Loading } from "../../components";
+import { auth } from "../../controller";
+import { ResourcePath } from "../../services/urlConfig";
+import globalStyle from "../../globalStyle";
+export default class extends Component {
+  constructor(props) {
+    super(props);
+    this.navigation = props.navigation;
+    this.state = {
+      icon: { uri: "asset:/userAvatar/default.png" },
+      mobile: 1
+    };
+    this.mobile = null;
+    this.pwd = null;
+    this.loading = null;
+    this.doLogin = this.doLogin.bind(this);
+    this.changeAccount = this.changeAccount.bind(this);
+  }
+  componentDidMount() {
+    AsyncStorage.getItem("currMobile").then(
+      mobile => {
+        if (mobile) {
+          AsyncStorage.getItem("usersInfo").then(res => {
+            if (res) {
+              let data = JSON.parse(res);
+              if (!Array.isArray(data)) {
+                data = [];
+              }
+              if (data.length === 0) {
+                //用户列表为空时
+                this.replaceCurrRoute("Login");
+              }
+              let item = data.find(item => item.mobile === mobile);
+              if (item) {
+                let icon = item.icon;
+                if (
+                  icon.indexOf("asset") === -1 &&
+                  icon.indexOf("com") === -1
+                ) {
+                  icon = ResourcePath + icon;
+                }
+                this.mobile = item.mobile;
+                this.pwd = item.password;
+                this.setState({
+                  mobile: this.mobile,
+                  icon: { uri: icon }
+                });
+              }
+            } else {
+              this.replaceCurrRoute("Login");
+            }
+          });
+        } else {
+          this.replaceCurrRoute("Login");
+        }
+      },
+      err => {
+        this.replaceCurrRoute("Login");
+      }
+    );
+  }
+
+  doLogin() {
+    this.loading && this.loading.show();
+    auth.doLogin(this.mobile, this.pwd).then(
+      res => {
+        if (res) {
+          let code = res.code;
+          if (code === 200) {
+            this.replaceCurrRoute("Home");
+          }
+        }
+        this.loading && this.loading.hide();
+      },
+      err => {
+        this.loading && this.loading.hide();
+      }
+    );
+  }
+  replaceCurrRoute(routeName) {
+    let key = this.navigation.state.key;
+    let replceAction = NavigationActions.replace({
+      key: key,
+      routeName: routeName
+    });
+    this.navigation.dispatch(replceAction);
+  }
+  changeAccount() {
+    this.props.navigation.navigate("UserList");
+  }
+  render() {
+    return (
+      <View>
+        <ImageBackground
+          source={require("../../assets/images/login-background.png")}
+          resizeMode={Image.resizeMode.stretch}
+          style={{ width: "100%", height: "100%" }}
+        >
+          <Image
+            source={require("../../assets/images/shanjixing.png")}
+            style={styles.image}
+          />
+          <View style={styles.container}>
+            <View style={{ flexDirection: "row" }}>
+              <View>
+                <View>
+                  <View
+                    style={{ justifyContent: "center", alignItems: "center" }}
+                  >
+                    <View
+                      style={{
+                        width: 150,
+                        height: 150,
+                        borderRadius: 150,
+                        overflow: "hidden"
+                      }}
+                    >
+                      <Image
+                        source={this.state.icon}
+                        style={{
+                          width: 150,
+                          height: 150
+                        }}
+                        defaultSource={{ uri: "asset:/userAvatar/default.png" }}
+                      />
+                    </View>
+                    <Text
+                      style={{ color: "#fff", fontSize: 16 }}
+                      numberOfLines={1}
+                    >
+                      {this.state.mobile}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.buttonGroup}>
+                  <Button
+                    primary
+                    style={styles.loginBtn}
+                    onPress={this.doLogin}
+                  >
+                    <Text>登陆</Text>
+                  </Button>
+                </View>
+              </View>
+              <View style={{ alignSelf: "flex-end" }}>
+                <Button
+                  light
+                  small
+                  style={{
+                    marginLeft: 10,
+                    backgroundColor: "transparent",
+                    elevation: 0,
+                    alignSelf: "flex-end"
+                  }}
+                  onPress={this.changeAccount}
+                >
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: 14
+                    }}
+                  >
+                    切换账号
+                  </Text>
+                </Button>
+              </View>
+            </View>
+          </View>
+        </ImageBackground>
+        <Loading
+          ref={ref => {
+            this.loading = ref;
+          }}
+        />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,.1)"
+  },
+  image: {
+    position: "absolute",
+    top: 5,
+    left: 5,
+    width: "15%",
+    height: "10%"
+  },
+  buttonGroup: {
+    flexDirection: "row",
+    marginTop: 10,
+    height: 50
+  },
+  loginBtn: {
+    width: 260,
+    paddingVertical: 10,
+    alignSelf: "flex-end",
+    justifyContent: "center",
+    borderRadius: 5,
+    backgroundColor: globalStyle.color.primary
+  }
+});

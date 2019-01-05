@@ -1,0 +1,635 @@
+/**
+ * 1. 正确词表
+ * 2. 错误词表
+ * 3. 学习记录表
+ * 4. 栏目进度表
+ * 5. 课本学习表（正在学习的课本记录）
+ */
+
+import React, { Component } from "react";
+import { ToastAndroid } from "react-native";
+import mainDB from "./mainDB";
+import entry from "./entity";
+import { utility } from "../utility";
+
+let mainSqlite = new mainDB();
+
+// 插入数据到课本学习表
+function insertLearnBooks(data) {
+  mainSqlite
+    .insertData(
+      "user_books",
+      data,
+      _getEntityKeys(entry.USER_LEARN_BOOKS_ENTITY)
+    )
+    .then(res => {});
+}
+
+// 查询栏目进度表和学习记录表中是否有column的相关数据
+function checkLearnColumnRecord(
+  studentNo,
+  bookNo,
+  columnNo,
+  learnType = 'DEFAULT'
+) {
+  return new Promise((resolve, reject) => {
+    mainSqlite
+      .getTableDataCount(
+        "column_schedule",
+        `studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+      )
+      .then(result => {
+        if (result == 0) {
+          let now = utility.dateToTimeStr(new Date());
+          mainSqlite
+            .insertData("column_schedule", {
+              studentNo: studentNo,
+              bookNo: bookNo,
+              columnNo: columnNo,
+              learnType: learnType,
+              rightNum: 0,
+              errorNum: 0,
+              updateTime: now,
+              synced: 0
+            })
+            .then(res => {
+              _checkLearnRecord(studentNo, bookNo, columnNo, learnType).then(
+                success => {
+                  resolve();
+                }
+              );
+            });
+        } else {
+          let nowDateTime = utility.dateToTimeStr(new Date());
+          mainSqlite
+            .executeSql(
+              `update column_schedule set updateTime='${nowDateTime}' where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+            )
+            .then(success => {
+              _checkLearnRecord(studentNo, bookNo, columnNo, learnType).then(
+                res => {
+                  resolve();
+                }
+              );
+            });
+        }
+      })
+      .catch(e => {
+        reject(e);
+      });
+  });
+}
+
+// 判断是否有学习记录的数据，如果没有，则创建新的数据
+function _checkLearnRecord(studentNo, bookNo, columnNo, learnType = 'DEFAULT') {
+  return new Promise((resolve, reject) => {
+    let nowDateTime = utility.dateToTimeStr(new Date());
+    let nowDateStr = utility.dateToDateShortStr(new Date());
+    mainSqlite
+      .getTableDataCount(
+        "learning_record",
+        `studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnDate='${nowDateStr}' and learnType='${learnType}'`
+      )
+      .then(count => {
+        if (count == 0) {
+          mainSqlite
+            .insertData("learning_record", {
+              studentNo: studentNo,
+              bookNo: bookNo,
+              columnNo: columnNo,
+              learnType: learnType,
+              learnDate: nowDateStr,
+              createTime: nowDateTime,
+              learnedTime: 0,
+              rightNum: 0,
+              errorNum: 0,
+              learnTimes: 0,
+              synced: 0
+            })
+            .then(res => {
+              resolve();
+            });
+        } else {
+          resolve();
+        }
+      })
+      .catch(e => {
+        reject(e);
+      });
+  });
+}
+
+// 更新复习数据
+function updateReviewData(reviewData, rightData) {
+  let sqlArr = [];
+  // 1. 更新错误表中的reviewNum 和 复习时间
+  let updateSqls = _getUpdateErrorSql(reviewData);
+  sqlArr = sqlArr.concat(updateSqls);
+  // 2. 如果有rightData, 插入到正确词表
+  if (rightData && rightData.length > 0) {
+    let insertSqls = _getInsertRightSql(rightData);
+    sqlArr = sqlArr.concat(insertSqls);
+  }
+  return mainSqlite.executeBatchSql(sqlArr);
+}
+
+// 插入学习数据
+// totalLearnedTime: 学习单词总时长
+// totalTimes: 点击单词总次数
+function insertLearnData(
+  rightData,
+  errorData,
+  reviewData,
+  totalLearnedTime,
+  totalTimes
+) {
+  let sqlArr = [];
+
+  let studentNo;
+  let bookNo;
+  let columnNo;
+  let learnType;
+  // 1. 插入正确词表中
+  if (rightData && rightData.length > 0) {
+    if (!studentNo) {
+      let wordItem = rightData[0];
+      studentNo = wordItem.studentNo;
+      bookNo = wordItem.bookNo;
+      columnNo = wordItem.columnNo;
+      learnType = wordItem.learnType;
+    }
+    let insertRightSqls = _getInsertRightSql(rightData);
+    sqlArr = sqlArr.concat(insertRightSqls);
+  }
+  // 2. 插入到错误词表中
+  if (errorData && errorData.length > 0) {
+    if (!studentNo) {
+      let wordItem = errorData[0];
+      studentNo = wordItem.studentNo;
+      bookNo = wordItem.bookNo;
+      columnNo = wordItem.columnNo;
+      learnType = wordItem.learnType;
+    }
+    let insertErrSqls = _getInsertErrorSql(errorData);
+    sqlArr = sqlArr.concat(insertErrSqls);
+  }
+  // 3. 如果有 reviewData, 更新错误词表
+  if (reviewData && reviewData.length > 0) {
+    if (!studentNo) {
+      let wordItem = reviewData[0];
+      studentNo = wordItem.studentNo;
+      bookNo = wordItem.bookNo;
+      columnNo = wordItem.columnNo;
+      learnType = wordItem.learnType;
+    }
+    let updateErrSqls = _getUpdateErrorSql(reviewData);
+    sqlArr = sqlArr.concat(updateErrSqls);
+  }
+
+  // 4. 更新学习记录表
+  let rightNum = rightData.length;
+  let errorNum = errorData.length;
+  let nowDateStortStr = utility.dateToDateShortStr(new Date());
+  sqlArr.push(
+    `update learning_record set rightNum=rightNum+${rightNum},errorNum=errorNum+${errorNum},learnTimes=learnTimes+${totalTimes}, learnedTime=learnedTime+${totalLearnedTime} where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnDate='${nowDateStortStr}' and learnType='${learnType}'`
+  );
+
+  return mainSqlite.executeBatchSql(sqlArr);
+}
+
+// 获取插入正确词表的Sql数据
+function _getInsertRightSql(rightWords) {
+  // 1. 构建insert right sql --插入数据到正确词表
+  let sqlArr = [];
+  let columnsArr = entry.USER_RIGHT_WRODS_ENTITY;
+  let now = utility.dateToTimeStr(new Date());
+  // 按照栏目分组记录正确单词数量
+  let columnWordCount = {};
+  rightWords.forEach(word => {
+    let columnNo = word.columnNo;
+    let wordCount = columnWordCount[columnNo];
+    if (wordCount === undefined) {
+      columnWordCount[columnNo] = 1;
+    } else {
+      columnWordCount[columnNo] = wordCount + 1;
+    }
+
+    let values = [];
+    columnsArr.forEach(item => {
+      let key = item.key;
+      let val = word[key];
+      if (typeof val === "string") {
+        val = val.replace(/"/g, '""');
+      }
+      if (val === undefined) {
+        if (key === "createTime") {
+          val = `${now}`;
+        } else {
+          val = "";
+        }
+      }
+      values.push(`'${val}'`);
+    });
+    sqlArr.push(
+      `replace into right_words (${_getEntityKeys(
+        columnsArr
+      )}) values(${values.join(",")})`
+    );
+  });
+
+  // 2.构建update column_schedule sql-- 更新栏目进度表
+  let bookNo = rightWords[0].bookNo;
+  let studentNo = rightWords[0].studentNo;
+  let learnType = rightWords[0].learnType;
+
+  for (let columnNo in columnWordCount) {
+    let rightCount = columnWordCount[columnNo];
+    sqlArr.push(
+      `update column_schedule set rightNum=rightNum+${rightCount}, updateTime='${now}' where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+    );
+  }
+  return sqlArr;
+}
+
+// 获取插入错误此表的Sql数据
+function _getInsertErrorSql(errWords) {
+  // 1. 构建insert error sql --插入数据到错误词表
+  let sqlArr = [];
+  let columnsArr = entry.USER_ERR_WRODS_ENTITY;
+  let now = utility.dateToTimeStr(new Date());
+  // 按照栏目分组记录正确单词数量
+  let columnWordCount = {};
+  errWords.forEach(word => {
+    let columnNo = word.columnNo;
+    let wordCount = columnWordCount[columnNo];
+    if (wordCount === undefined) {
+      columnWordCount[columnNo] = 1;
+    } else {
+      columnWordCount[columnNo] = wordCount + 1;
+    }
+
+    let values = [];
+    columnsArr.forEach(item => {
+      let key = item.key;
+      let val = word[key];
+      if (typeof val === "string") {
+        val = val.replace(/"/g, '""');
+      }
+      if (val === undefined) {
+        if (key === "createTime") {
+          val = `${now}`;
+        } else {
+          val = "";
+        }
+      }
+      values.push(`'${val}'`);
+    });
+    sqlArr.push(
+      `replace into error_words (${_getEntityKeys(
+        columnsArr
+      )}) values(${values.join(",")})`
+    );
+  });
+
+  // 2.构建update column_schedule sql-- 更新栏目进度表
+  let bookNo = errWords[0].bookNo;
+  let studentNo = errWords[0].studentNo;
+  let learnType = errWords[0].learnType;
+
+  for (let columnNo in columnWordCount) {
+    let rightCount = columnWordCount[columnNo];
+    sqlArr.push(
+      `update column_schedule set errorNum=errorNum+${rightCount}, updateTime='${now}' where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+    );
+  }
+  return sqlArr;
+}
+
+// 获取更新错误词表的Sql数据
+function _getUpdateErrorSql(errWords) {
+  // 1. 更新错误表中的reviewNum 和 复习时间
+  let sqlArr = [];
+  errWords.forEach(word => {
+    let values = [];
+    for (let key in word) {
+      let val = word[key];
+      if (
+        key !== "studentNo" &&
+        key !== "columnNo" &&
+        key !== "bookNo" &&
+        key !== "wordNo" &&
+        key !== "learnType"
+      ) {
+        if (typeof val === "string") {
+          values.push(`${key}='${val}'`);
+        } else {
+          values.push(`${key}=${val}`);
+        }
+      }
+    }
+    let studentNo = word.studentNo;
+    let columnNo = word.columnNo;
+    let wordNo = word.wordNo;
+    let learnType = word.learnType;
+    sqlArr.push(
+      `update error_words set ${values.join(
+        ","
+      )} where studentNo='${studentNo}' and columnNo='${columnNo}' and wordNo='${wordNo}' and learnType='${learnType}'`
+    );
+  });
+  return sqlArr;
+}
+
+// 获取正在学习的课本
+function getLearningBooks(studentNo) {
+  let sql = `select * from books LEFT JOIN user_books ON books.bookNo = user_books.bookNo where user_books.studentNo = '${studentNo}'`;
+  return mainSqlite.executeSql(sql);
+}
+
+// 获取栏目正确单词
+function getColumnRightWords(studentNo, columnNo, learnType = 'DEFAULT') {
+  return new Promise((resolve, reject) => {
+    mainSqlite
+      .getTableData(
+        "right_words",
+        `studentNo='${studentNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+      )
+      .then(res => {
+        let data = [];
+        let len = res.length;
+        for (let i = 0; i < len; i++) {
+          data.push(res.item(i));
+        }
+        resolve(data);
+      });
+  });
+}
+
+// 获取栏目正确单词
+function getColumnErrWords(studentNo, columnNo, learnType = 'DEFAULT') {
+  return new Promise((resolve, reject) => {
+    mainSqlite
+      .getTableData(
+        "error_words",
+        `studentNo='${studentNo}' and columnNo='${columnNo}' and learnType='${learnType}'`
+      )
+      .then(res => {
+        let data = [];
+        let len = res.length;
+        for (let i = 0; i < len; i++) {
+          data.push(res.item(i));
+        }
+        resolve(data);
+      });
+  });
+}
+
+// 获取课本错误单词
+function getUserBookErrWords(studentNo, bookNo, page, size) {
+  // let sqlStr = `select * from error_words`;
+  let sqlStr = `select * from error_words LEFT JOIN words ON error_words.wordNo=words.wordNo where error_words.studentNo='${studentNo}' and error_words.bookNo='${bookNo}' and error_words.reviewNum<6 and error_words.status !='over'`;
+  if (page !== undefined && size !== undefined) {
+    sqlStr += ` limit ${size} offset ${page * size}`;
+  }
+  return mainSqlite.executeSql(sqlStr);
+}
+
+// 清空学习记录
+function clearColumnLearnRecord(studentNo, bookNo, columnNo) {
+  let sqlArr = [];
+  // 1. 删除正确词表数据
+  sqlArr.push(
+    `delete from right_words where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}'`
+  );
+  // 2. 删除错误词表数据
+  sqlArr.push(
+    `delete from error_words where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}'`
+  );
+  // 3. 删除column进度表
+  sqlArr.push(
+    `delete from column_schedule where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}'`
+  );
+
+  return mainSqlite.executeBatchSql(sqlArr);
+}
+
+// 获取学习记录统计
+function getLearnStatistics(studentNo, startDate, endDate) {
+  let sqlStr = `select date(createTime), sum(learnedTime) learnedTime, sum(rightNum) rightNum, sum(errorNum) errorNum, sum(learnTimes) learnTimes from learning_record where studentNo = '${studentNo}' and createTime between datetime('${startDate}') and  datetime('${endDate}') group by date(createTime)`;
+  return mainSqlite.executeSql(sqlStr);
+}
+
+//插入测试记录
+function insertTestRecord(data) {
+  return new Promise((resolve, reject) => {
+    let sql = `INSERT INTO  exam_record values('${data.studentNo}','${
+      data.examType
+    }','${data.name}',${data.total},${data.rightCount},${data.errorCount},'${
+      data.startTime
+    }','${data.finishedTime}',${data.score},"enabled")`;
+    mainSqlite.executeSql(sql).then(
+      res => {
+        resolve(res);
+      },
+      err => {
+        reject(err);
+      }
+    );
+  });
+}
+
+// 插入测试记录
+function insertExamRecord(examRecord, examDetails) {
+  return new Promise((resolve, reject) => {
+    mainSqlite.open().then(db => {
+      db.transaction(
+        tx => {
+          // 1. 插入到记录表
+          let keys = [];
+          let valArr = [];
+          let id = utility.guid();
+          entry.USER_EXAM_RECORD.forEach(item => {
+            let key = item.key;
+            keys.push(key);
+            let val = examRecord[key];
+            if (val === undefined) {
+              val = "";
+            } else {
+              if (typeof val === "string") {
+                val = val.replace(/"/g, '""');
+              }
+            }
+            if (typeof val === "string") {
+              valArr.push(`"${val}"`);
+            } else {
+              valArr.push(`${val}`);
+            }
+          });
+          let recordSql = `insert into exam_record (${keys.join(
+            ","
+          )}) VALUES(${valArr.join(",")})`;
+          tx.executeSql(recordSql, null, (tx, results) => {
+            tx.executeSql(
+              "select max(id) as idNo from exam_record",
+              null,
+              (tx, results) => {
+                let idResult = results.rows.item(0);
+                let idNo = idResult.idNo;
+                // 2. 插入到详情表
+                examDetails.forEach(detailItem => {
+                  detailItem.examId = idNo;
+                  detailItem.synced = 0;
+
+                  let keys = [];
+                  let valArr = [];
+                  entry.USER_EXAM_DETAIL.forEach(examItem => {
+                    let key = examItem.key;
+                    keys.push(key);
+                    let val = detailItem[key];
+                    if (val === undefined) {
+                      val = "";
+                    } else {
+                      if (typeof val === "string") {
+                        val = val.replace(/"/g, '""');
+                      }
+                    }
+                    if (typeof val === "string") {
+                      valArr.push(`"${val}"`);
+                    } else {
+                      valArr.push(`${val}`);
+                    }
+                  });
+                  let detailSql = `insert into exam_details (${keys.join(
+                    ","
+                  )}) VALUES(${valArr.join(",")})`;
+                  tx.executeSql(detailSql);
+                });
+              }
+            );
+          });
+        },
+        err => {
+          reject(err);
+        },
+        success => {
+          resolve();
+        }
+      );
+    });
+  });
+}
+
+//getExamRecord  测试记录数据
+function getExamRecord(studentNo, page = 0, size = 20) {
+  return new Promise((resolve, reject) => {
+    let sql = `select * from exam_record where studentNo='${studentNo}'  order by finishedTime desc limit ${size} offset ${size *
+      page}`;
+    mainSqlite.executeSql(sql).then(
+      res => {
+        resolve(res);
+      },
+      err => {
+        reject(err);
+      }
+    );
+  });
+}
+//获取所有的测试记录
+function getAllExanRecord() {
+  return new Promise((resolve, reject) => {
+    mainSqlite.getTableData("exam_record").then(
+      res => {
+        resolve(res);
+      },
+      err => {
+        reject(err);
+      }
+    );
+  });
+}
+//更新所有的有误的测试记录
+function updateExanRecord(data) {
+  return new Promise((resolve, reject) => {
+    let sqls = data.map(item => {
+      if (item) {
+        return `update exam_record set score=${item.score},total=${
+          item.total
+        } where id='${item.id}'`;
+      }
+    });
+    mainSqlite.executeBatchSql(sqls).then(
+      res => {
+        resolve(res);
+      },
+      err => {
+        reject(err);
+      }
+    );
+  });
+}
+//获取测试详情表的数据
+function getExamDetails(id) {
+  return new Promise((resolve, reject) => {
+    mainSqlite.getTableData("exam_details", `examId=${id}`).then(
+      res => {
+        resolve(res);
+      },
+      err => {
+        reject(err);
+      }
+    );
+  });
+}
+
+// 处理异正确词表中常情况的数据
+function complateColumnRightWords(
+  studentNo,
+  bookNo,
+  columnNo,
+  missedWords,
+  learnType
+) {
+  return new Promise((resolve, reject) => {
+    mainSqlite
+      .insertData(
+        "right_words",
+        missedWords,
+        _getEntityKeys(entry.USER_RIGHT_WRODS_ENTITY)
+      )
+      .then(success => {
+        let str = `update column_schedule set rightNum=rightNum+${
+          missedWords.length
+        } where studentNo='${studentNo}' and bookNo='${bookNo}' and columnNo='${columnNo}' and learnType='${learnType}'`;
+        mainSqlite.executeSql(str).then(res => {
+          resolve();
+        });
+      });
+  });
+}
+
+function _getEntityKeys(entity) {
+  let keys = [];
+  entity.forEach(item => {
+    keys.push(item.key);
+  });
+  return keys;
+}
+export default {
+  insertLearnBooks,
+  getLearningBooks,
+  getColumnRightWords,
+  getColumnErrWords,
+  getUserBookErrWords,
+  checkLearnColumnRecord,
+  clearColumnLearnRecord,
+  getLearnStatistics,
+  insertTestRecord,
+  insertExamRecord,
+  getExamRecord,
+  getExamDetails,
+  complateColumnRightWords,
+  insertLearnData,
+  updateReviewData,
+  getAllExanRecord,
+  updateExanRecord
+};

@@ -1,0 +1,311 @@
+import React from "react";
+import {
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  DeviceEventEmitter,
+  AsyncStorage
+} from "react-native";
+import { Content, Button } from "native-base";
+import Spinner from "react-native-spinkit";
+import { Header } from "../../components";
+import PopupDialog, {
+  DialogTitle,
+  DialogButton,
+  SlideAnimation
+} from "react-native-popup-dialog";
+import { utility } from "../../utility";
+import commonStyle from "../../globalStyle";
+import learningDB from "../../db/learningDB";
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      delIndex: 0,
+      isShow: true,
+      count: 0,
+      dataList: [],
+      isVisible: false
+    };
+    this.lastPage = false;
+    this.onDelete = this.onDelete.bind(this);
+    this.subDel = this.subDel.bind(this);
+    this._onEndReached = this._onEndReached.bind(this);
+  }
+  //点击删除按钮
+  onDelete(index) {
+    this.setState({ delIndex: index }, () => {});
+    this.refs.delDialog.show();
+  }
+  //点击确认删除
+  subDel() {
+    let a = this.state.dataList.splice(this.state.delIndex, 1);
+    this.setState({ dataList: this.state.dataList }, () => {});
+    this.refs.delDialog.dismiss();
+  }
+  // 测试用时
+  useTime(index) {
+    let date1 = new Date(
+      this.state.dataList[index].startTime.replace(/\-/g, "/")
+    );
+    let date2 = new Date(
+      this.state.dataList[index].finishedTime.replace(/\-/g, "/")
+    );
+    let s1 = date1.getTime();
+    let s2 = date2.getTime();
+    let totalTime = (s2 - s1) / 1000;
+    let day = parseInt(totalTime / (24 * 60 * 60)); //计算整数天数
+    let afterDay = totalTime - day * 24 * 60 * 60; //取得算出天数后剩余的秒数
+    let hour = parseInt(afterDay / (60 * 60)); //计算整数小时数
+    let afterHour = totalTime - day * 24 * 60 * 60 - hour * 60 * 60; //取得算出小时数后剩余的秒数
+    let min = parseInt(afterHour / 60); //计算整数分
+    let afterMin = totalTime - day * 24 * 60 * 60 - hour * 60 * 60 - min * 60; //取得算出分后剩余的秒数
+    return (
+      <Text>
+        {min} 分 {afterMin} 秒
+      </Text>
+    );
+  }
+  //判断查看按钮是否显示
+  chaKan(index, score) {
+    const { navigate } = this.props.navigation;
+    if (
+      this.state.dataList[index].examType == "learn_before_test" ||
+      this.state.dataList[index].examType == "learn_after_test"
+    ) {
+      return (
+        <View style={styles.btnGroup}>
+          <Text style={{ width: 60, color: "#FB3E1A", textAlign: "center" }}>
+            {score} 分
+          </Text>
+          <TouchableOpacity
+            onPress={() =>
+              navigate("TestResultDetail", {
+                testData: this.state.dataList[index]
+              })
+            }
+          >
+            <Text style={{ color: "#3A98FF" }}>查看</Text>
+          </TouchableOpacity>
+          {/* <Text style={{ color: "#3A98FF" }}>|</Text> */}
+          {/* <TouchableOpacity onPress={() => { this.onDelete(index) }}>
+            <Text style={{ color: "#3A98FF" }}>删除</Text>
+          </TouchableOpacity> */}
+        </View>
+      );
+    } else if (this.state.dataList[index].examType == "word_test") {
+      return (
+        <View style={styles.btnGroup}>
+          <Text style={{ color: "#FB3E1A" }}>词汇量：{score} 个</Text>
+          {/* <TouchableOpacity onPress={() => { this.onDelete(index) }}>
+            <Text style={{ color: "#3A98FF" }}>删除</Text>
+          </TouchableOpacity> */}
+        </View>
+      );
+    }
+  }
+  dataCheck() {
+    if (this.state.dataList.length == 0) {
+      return (
+        <Text
+          style={{
+            fontSize: 20,
+            color: "#56BDFF",
+            textAlign: "center",
+            marginTop: 150
+          }}
+        >
+          暂无测试记录，快去测试一下自己的单词水平吧！
+        </Text>
+      );
+    }
+  }
+  _onEndReached() {
+    if (!this.lastPage) {
+      this.setState({ count: this.state.count + 1, isVisible: true });
+      this.getData();
+    } else {
+      utility.Toast("已经是最后一页了");
+    }
+  }
+
+  //获取数据
+  getData() {
+    AsyncStorage.getItem("studentNo").then(studentNo => {
+      if (studentNo) {
+        learningDB.getExamRecord(studentNo, this.state.count, 20).then(res => {
+          if (this.state.count > 0) {
+            if (res.length < 20) {
+              this.lastPage = true;
+            }
+            let newArray = this.state.dataList.concat(res);
+            this.setState({ dataList: newArray, isVisible: false }, () => {});
+          } else {
+            let newArray = this.state.dataList.concat(res);
+            this.setState({ dataList: newArray, isVisible: false }, () => {});
+          }
+        });
+      }
+    });
+  }
+
+  componentDidMount() {
+    this.getData();
+  }
+
+  componentWillUnmount() {
+    let params = this.props.navigation.state.params;
+    let examType = "";
+    if (params) {
+      examType = params.examType || "";
+    }
+    DeviceEventEmitter.emit("examReturnToLearn", examType);
+  }
+  componentDidUpdate() {}
+  render() {
+    return (
+      <View>
+        <PopupDialog
+          width={400}
+          height={220}
+          dialogTitle={
+            <DialogTitle
+              titleStyle={{
+                backgroundColor: commonStyle.color.primary,
+                color: "#fff"
+              }}
+              titleTextStyle={{ color: "#fff" }}
+              title="操作提示 "
+            />
+          }
+          ref="delDialog"
+        >
+          <View>
+            <Text style={styles.dialogText}>
+              您确定要删除此条记录吗？不可恢复请谨慎选择！
+            </Text>
+            <View style={styles.dialogBtn}>
+              <Button
+                block
+                success
+                style={styles.sureBtn}
+                onPress={this.subDel}
+              >
+                <Text style={{ color: "#f7f7f7", fontSize: 14 }}>确定</Text>
+              </Button>
+              <Button
+                block
+                danger
+                style={styles.delBtn}
+                onPress={() => this.refs.delDialog.dismiss()}
+              >
+                <Text style={{ color: "#f7f7f7", fontSize: 14 }}>取消</Text>
+              </Button>
+            </View>
+          </View>
+        </PopupDialog>
+        <Header title="测试成绩" />
+
+        <View style={styles.listContainer}>
+          {this.dataCheck()}
+          <FlatList
+            data={this.state.dataList}
+            onEndReachedThreshold={0.1}
+            onEndReached={this._onEndReached}
+            keyExtractor={(item, index) => "" + index}
+            renderItem={({ item, index }) => (
+              <View key={index} style={styles.item}>
+                <Text style={{ width: 40, textAlign: "center" }}>
+                  {index + 1}
+                </Text>
+                <Text style={{ width: 100, textAlign: "center" }}>
+                  {item.startTime}
+                </Text>
+                <Text style={styles.name}>{item.name}</Text>
+                <View style={styles.result}>
+                  <Text>共 {item.total} 题</Text>
+                  <Text>对 {item.rightCount} 题</Text>
+                  <Text>错 {item.errorCount} 题</Text>
+                </View>
+                {this.useTime(index)}
+                {/* 得分 查看 删除 按钮 */}
+                {this.chaKan(index, item.score)}
+              </View>
+            )}
+            // getItemLayout={(data, index) => ({
+            //   length: 70,
+            //   offset: 70 * index,
+            //   index
+            // })}
+          />
+        </View>
+        <Spinner
+          style={{
+            position: "absolute",
+            bottom: 60,
+            left: "50%"
+          }}
+          isVisible={this.state.isVisible}
+          size={50}
+          type="FadingCircleAlt"
+          color={commonStyle.color.primary}
+        />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  listContainer: {
+    paddingBottom: 100
+  },
+  item: {
+    height: 70,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#ddd"
+  },
+  name: {
+    width: 350,
+    textAlign: "center",
+    color: "#3A98FF"
+  },
+  result: {
+    width: 200,
+    flexDirection: "row"
+  },
+  btnGroup: {
+    width: 200,
+    flexDirection: "row",
+    justifyContent: "space-around"
+  },
+  dialogText: {
+    textAlign: "center",
+    marginTop: 50
+  },
+  dialogBtn: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 40
+  },
+  sureBtn: {
+    width: 80,
+    height: 40,
+    borderRadius: 6,
+    marginRight: 10
+  },
+  delBtn: {
+    width: 80,
+    height: 40,
+    borderRadius: 6
+  }
+});

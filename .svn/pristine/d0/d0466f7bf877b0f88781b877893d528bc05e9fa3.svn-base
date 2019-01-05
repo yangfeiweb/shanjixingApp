@@ -1,0 +1,136 @@
+import { AsyncStorage } from "react-native";
+import dataService from "../services";
+import { userDB, learnDB } from "../db";
+import { IMAGE_PATH, IMG_TYPE, TEST_TYPE } from "../utility/dict";
+import { ResourcePath } from "../services/urlConfig";
+import { utility } from "../utility";
+//用户登陆处理函数
+// const db = new userDB()
+function doLogin(userName, pwd) {
+  let task = dataService.login(userName, pwd);
+  task.then(res => {
+    let result = res.data;
+    let code = res.code;
+    if (code === 200) {
+      let data = res.data;
+      let arr = [];
+      let obj = {};
+      for (let key in data) {
+        if (key !== "token") {
+          obj[key] = data[key];
+        }
+      }
+      if (obj.icon) {
+        obj.icon = ResourcePath + obj.icon;
+      }
+      obj["password"] = pwd;
+      AsyncStorage.getItem("usersInfo").then(res => {
+        //
+        let usersInfo = null;
+        if (!res) {
+          if (!data.icon) {
+            let num = utility.baseRandom(1, 150);
+            obj.icon = IMAGE_PATH + num + IMG_TYPE;
+          }
+          arr.push(obj);
+          usersInfo = arr;
+        } else {
+          let infoArr = JSON.parse(res);
+          let index = infoArr.findIndex(item => item.mobile === userName);
+          if (index === -1) {
+            //没有的话添加
+            if (!data.icon) {
+              let num = utility.baseRandom(1, 150);
+              obj.icon = IMAGE_PATH + num + IMG_TYPE;
+            }
+            arr.push(obj);
+            usersInfo = arr.concat(infoArr);
+          } else {
+            //有的话更新一下数据
+            let item = infoArr[index];
+            if (!data.icon && !item.isSelected) {
+              //isSelected; 表示用户是否选择了头像，选择后不再随机选取
+              let num = utility.baseRandom(1, 150);
+              obj.icon = IMAGE_PATH + num + IMG_TYPE;
+            }
+            let newInfo = Object.assign(item, obj);
+            infoArr.splice(index, 1, newInfo); //用新的替换旧的
+            usersInfo = infoArr;
+          }
+        }
+        if (usersInfo) {
+          AsyncStorage.setItem("usersInfo", JSON.stringify(usersInfo)).then(
+            res => {
+              syncUserInfo();
+            }
+          );
+        }
+      });
+      let multiSets = [
+        ["currMobile", userName],
+        ["token", data.token],
+        ["studentNo", data.studentNo]
+      ];
+      AsyncStorage.multiSet(multiSets).then(res => {});
+    }
+
+    learnDB.getAllExanRecord().then(
+      res => {
+        let records = res.raw();
+        let arr = [];
+        records.forEach(item => {
+          if (item && item.examType !== TEST_TYPE.WORD_TEST) {
+            let obj = {
+              id: item.id
+            };
+            let total = item.total > 20 ? 20 : item.total;
+            obj["total"] = total;
+            obj["score"] = Math.ceil(item.rightCount / total * 100);
+            arr.push(obj);
+          }
+        });
+        if (arr.length !== 0) {
+          learnDB.updateExanRecord(arr).then(
+            res => {
+              console.log("-----update success");
+            },
+            err => {
+              console.log("*----------update-err");
+            }
+          );
+        }
+      },
+      err => {
+        console.log("---------- get err", err);
+      }
+    );
+  });
+  return task;
+}
+
+function syncUserInfo() {
+  dataService.getUsersInfo().then(res => {
+    let code = res.code;
+    if (code === 200) {
+      let data = res.data;
+      AsyncStorage.getItem("usersInfo").then(res => {
+        if (res) {
+          let infos = JSON.parse(res);
+          let index = infos.findIndex(item => item.mobile === data.mobile);
+          if (index !== -1) {
+            let item = infos[index];
+            let obj = Object.assign(item, data);
+            infos.splice(index, 1, obj);
+            AsyncStorage.setItem("usersInfo", JSON.stringify(infos)).then(
+              res => {}
+            );
+          }
+        }
+      });
+    }
+  });
+}
+
+export default {
+  doLogin
+};

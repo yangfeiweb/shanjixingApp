@@ -1,0 +1,343 @@
+import RNFetchBlob from "react-native-fetch-blob";
+import AES from "crypto-js/aes";
+import MD5 from "crypto-js/md5";
+import Utf8 from "crypto-js/enc-utf8";
+import Base64 from "crypto-js/enc-base64";
+import Pkcs7 from "crypto-js/pad-pkcs7";
+import CryptoJS from "crypto-js";
+
+import { ToastAndroid } from "react-native";
+import { booksDB } from "../db";
+import { utility } from "../utility";
+// import { AsyncStorage } from "react-native";
+
+const dirs = RNFetchBlob.fs.dirs;
+const courseRoot = dirs.DocumentDir + "/course/";
+
+// 插入数据到books表
+function insertBooksToDB(data) {
+  return booksDB.insertBookData(data);
+}
+
+// 插入数据到user_books表
+function insertBookFileToDB(studentNo, bookNo, version, progressCb) {
+  return new Promise((resolve, reject) => {
+    _getBookColumnsInFile(bookNo, version).then(
+      res => {
+        // insert columns table
+        let bookInfos;
+        try {
+          bookInfos = JSON.parse(res);
+        } catch (e) {
+        }
+        let book = bookInfos.book;
+        let columns = bookInfos.columns;
+        book["studentNo"] = studentNo;
+        // 1. 用户课本入库
+        booksDB.insertUserBookData(book).then(res => {});
+        // 2. 课本栏目对照关系入库
+
+        booksDB.insertBookColumns(columns).then(res => {
+          // 取单词，插入单词表， 构造column 数据插入column表
+          let successCount = 0;
+          let errCount = 0;
+          let total = columns.length;
+          let errColumns = [];
+          let nextCol = columns[0];
+          _insertColumns(columns, version, 0, progressCb, resolve);
+        });
+      },
+      err => {
+        ToastAndroid("文件校验失败！");
+      }
+    );
+  });
+}
+
+// 获取用户正在学习的column数据
+function getUserColumnsData(studentNo, bookNo) {
+  return new Promise((resolve, reject) => {
+    booksDB.getBookInfo(bookNo).then(bookInfo => {
+      booksDB.getColumnInfos(bookNo).then(
+        columnInfos => {
+          booksDB.getColumnSchedule(studentNo, bookNo).then(scheduleRes => {
+            let currColumnData = null;
+            let lastLearnedItem = null;
+            let firstLearnItem = null;
+            if (scheduleRes && scheduleRes.length) {
+              let lastLearnedIdx = 0;
+              let lastLearnedTime = null;
+              columnInfos.forEach((item, idx) => {
+                let scheduleItem = scheduleRes.find(column => {
+                  return column.columnNo == item.columnNo;
+                });
+                let rightNum = 0;
+                let errorNum = 0;
+                let itemUpdateTime = null;
+                if (scheduleItem) {
+                  rightNum = scheduleItem["rightNum"] || 0;
+                  errorNum = scheduleItem["errorNum"] || 0;
+                  itemUpdateTime = scheduleItem["updateTime"];
+                }
+                item["rightNum"] = rightNum;
+                item["errorNum"] = errorNum;
+                if (itemUpdateTime) {
+                  let updateTime = utility.timeStrToObj(itemUpdateTime);
+                  if (!lastLearnedTime || lastLearnedTime < updateTime) {
+                    lastLearnedTime = updateTime;
+                    lastLearnedItem = item;
+                  }
+                }
+                if (!firstLearnItem && rightNum < item.words) {
+                  firstLearnItem = item;
+                }
+              });
+            } else {
+              columnInfos.forEach((item, idx) => {
+                item["rightNum"] = 0;
+                item["errorNum"] = 0;
+              });
+            }
+            // 计算课程总进度
+            let totalRight = 0;
+            let totalError = 0;
+            scheduleRes &&
+              scheduleRes.forEach(item => {
+                totalRight += item.rightNum;
+                totalError += item.errorNum;
+              });
+            bookInfo["totalRight"] = totalRight;
+            bookInfo["totalError"] = totalError;
+            if (
+              lastLearnedItem &&
+              lastLearnedItem.rightNum < lastLearnedItem.words
+            ) {
+              currColumnData = lastLearnedItem;
+            } else if (firstLearnItem) {
+              currColumnData = firstLearnItem;
+            } else if (scheduleRes.length == 0) {
+              currColumnData = columnInfos[0];
+            }
+            resolve({ bookInfo, columnInfos, currColumnData });
+          });
+        },
+        err => {
+          reject(err);
+        }
+      );
+    });
+  });
+}
+
+function insertUserBookInfo(studentNo, bookData) {
+  let userBookData = {
+    studentNo: studentNo,
+    bookNo: bookData.bookNo,
+    status: bookData.status,
+    orders: bookData.orders,
+    synced: 0
+  };
+  return booksDB.insertUserBookData(userBookData);
+}
+
+// 检查库中是否有用户课本信息，1. user_books, 2. book_columns
+// 如果有1 和2， 则证明用户下载过该课本
+// 如果有1 和没有2， 用户需要下载
+// 如果有2 和没有1， 则证明其他用户下载过该课本，这个用户直接加入到课本就可以了
+function checkBookCached(studentNo, bookNo) {}
+
+// 获取用户课本列表
+function getUserBooksList(studentNo) {
+  return new Promise((resolve, reject) => {
+    booksDB.getUserBooksList(studentNo).then(books => {
+      booksDB.getUserBooksSchedule(studentNo).then(schedules => {
+        schedules.forEach(item => {
+          let bookNo = item.bookNo;
+          let bookItem = books.find(book => {
+            return book.bookNo === bookNo;
+          });
+          if (bookItem) {
+            bookItem["totalRight"] = item.totalRight;
+            bookItem["totalError"] = item.totalError;
+          }
+        });
+        resolve(books);
+      });
+    });
+  });
+}
+// 获取已缓存的课本编号
+function getCachedBookNos() {
+  return booksDB.getCachedBookNos();
+}
+
+// 获取数据库中的课本信息
+function getBookListInDB() {
+  return booksDB.getBookList();
+}
+
+// 获取栏目单词
+function getColumnWords(bookNo, columnNo) {
+  return booksDB.getColumnWords(bookNo, columnNo);
+}
+
+// 插入数据到columns表
+function _insertColumns(columns, version, successCount, progressCb, resolve) {
+  let nextCol = columns[successCount];
+  let total = columns.length;
+  _insertColumnWords(nextCol, version).then(
+    success => {
+      successCount = successCount + 1;
+      let progress = Math.floor(successCount * 100 / total);
+      progressCb && progressCb(progress);
+      if (progress !== 100) {
+        _insertColumns(columns, version, successCount, progressCb, resolve);
+      } else {
+        resolve && resolve();
+      }
+    },
+    err => {
+      // _insertColumns(columns, version, successCount, progressCb, resolve);
+    }
+  );
+}
+
+// 插入数据到column-word 对照表
+function _insertColumnWords(columnData, version) {
+  return new Promise((resolve, reject) => {
+    _getColumnWordDataInFile(
+      columnData.bookNo,
+      columnData.columnNo,
+      version
+    ).then(
+      data => {
+        let wordData;
+        try {
+          wordData = JSON.parse(data);
+        } catch (e) {
+        }
+        let words = wordData.words;
+        if (words) {
+          let wordIds = [];
+          words.forEach(item => {
+            wordIds.push(item.wordNo);
+          });
+          let columnResult = 0;
+          let wordResult = 0;
+          booksDB
+            .insertColumnData({
+              bookNo: wordData.bookNo,
+              columnNo: wordData.columnNo,
+              wordIds: wordIds.join(",")
+            })
+            .then(
+              res => {
+                booksDB.insertWordData(words).then(
+                  res => {
+                    resolve();
+                  },
+                  err => {
+                    reject({
+                      columnNo: columnData.columnNo,
+                      column: true,
+                      words: false
+                    });
+                  }
+                );
+              },
+              err => {
+                reject({
+                  columnNo: columnData.columnNo,
+                  column: false,
+                  words: false
+                });
+              }
+            );
+        }
+      },
+      err => {
+        reject({
+          columnNo: columnData.columnNo,
+          column: false,
+          words: false
+        });
+      }
+    );
+  });
+}
+
+// 在文件中获取column数据
+function _getBookColumnsInFile(bookNo, version) {
+  return new Promise((resolve, reject) => {
+    let infoFile = `${courseRoot}${bookNo}/${bookNo}.bcd`;
+    RNFetchBlob.fs
+      .readFile(infoFile, "utf8")
+      .then(data => {
+        let val = bookNo + version;
+        // val = "123456";
+        let key = MD5(val).toString();
+        let iv = "0000000000000000";
+        let result = _getDAesString(data, key, iv);
+        resolve(result);
+      })
+      .catch(e => {
+        reject(e);
+      });
+  });
+}
+
+// 在文件中获取column 的单词信息
+function _getColumnWordDataInFile(bookNo, columnNo, version) {
+  return new Promise((resolve, reject) => {
+    let columnFile = `${courseRoot}${bookNo}/${columnNo}.cwd`;
+    RNFetchBlob.fs
+      .readFile(columnFile, "utf8")
+      .then(data => {
+        let val = bookNo + version;
+        // val = "123456";
+        let key = MD5(val).toString();
+        let iv = "0000000000000000";
+        let result = _getDAesString(data, key, iv);
+        resolve(result);
+      })
+      .catch(e => {
+        reject(e);
+      });
+  });
+}
+
+// 移除用户课本
+function removeBookFromCache(studentNo,booKNos) {
+  return booksDB.removeUserBooks(studentNo,booKNos)
+}
+
+// 删除用户课本的学习记录
+function clearBookRecord(studentNo,booKNos){
+  return booksDB.clearUserBookRecord(studentNo,booKNos)
+}
+
+//解密
+function _getDAesString(encrypted, key, iv) {
+  var key = Utf8.parse(key);
+  var iv = Utf8.parse(iv);
+  var decrypted = CryptoJS.AES.decrypt(encrypted, key, {
+    iv: iv,
+    mode: CryptoJS.mode.CBC,
+    padding: Pkcs7
+  });
+  return decrypted.toString(Utf8);
+}
+
+export default {
+  insertBooksToDB,
+  insertBookFileToDB,
+  insertUserBookInfo,
+  getUserColumnsData,
+  getUserBooksList,
+  getCachedBookNos,
+  checkBookCached,
+  getBookListInDB,
+  getColumnWords,
+  removeBookFromCache,
+  clearBookRecord
+};

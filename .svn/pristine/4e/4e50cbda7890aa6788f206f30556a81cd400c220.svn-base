@@ -1,0 +1,5 @@
+import auth from "./pageService/auth";
+import personal from "./pageService/personal";
+import course from "./pageService/course";
+import common from "./pageService/common";
+export default Object.assign({}, auth, personal, course, common);

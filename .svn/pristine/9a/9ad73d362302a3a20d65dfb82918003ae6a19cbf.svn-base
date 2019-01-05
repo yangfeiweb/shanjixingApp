@@ -1,0 +1,143 @@
+
+// /**
+//  * 个人中心修改密码
+//  */
+// import React, { PureComponent } from "react";
+// import { View, Text, StyleSheet, Alert, TouchableOpacity, ScrollView } from "react-native";
+// import PopupDialog, { SlideAnimation } from "react-native-popup-dialog";
+// import { Item, Input, Icon } from "native-base";
+// import PropTypes from "prop-types";
+// import Title from "./Title";
+// import globalStyle from "../../../globalStyle";
+// import dataService from "../../../services";
+// import { Toast } from "../../../utility/utility";
+// const slideAnimation = new SlideAnimation({
+//     slideFrom: 'bottom',
+// });
+
+// export default class ChangePwd extends PureComponent {
+//     constructor(props) {
+//         super(props)
+//         this._root = null
+//         this.oldPwd = null  //就密码
+//         this.newPwd = null   //新密码
+//         this.newPwdConfirm = null //确认新密码
+//     }
+
+//     doChangePwd() {
+//         if (!this.checkInputValue()) {
+//             return
+//         }
+//         const { showLoading, hideLoading } = this.props
+
+//         showLoading()
+//         dataService.changePwd(this.oldPwd, this.newPwd).then((res) => {
+//             console.log("---------change pwd res:", res)
+//             let code = res.code;
+//             let msg = res.msg;
+//             if (code === 200) {
+//                 Toast("密码修改成功")
+//             }else{
+//                 Toast(msg)
+//                 hideLoading()
+//             }
+//         }, err => {
+//             hideLoading()
+//             console.log("-----------changepwd err :", err)
+//         })
+
+//     }
+//     checkInputValue() {
+//         if (!this.oldPwd) {
+//             Toast("请输入原密码")
+//             return false
+//         }
+//         if (!this.newPwd) {
+//             Toast("请输入新密码")
+//             return false
+//         }
+//         if (!this.newPwdConfirm) {
+//             Toast("请再次密码")
+//             return false
+//         }
+//         if (this.newPwd !== this.newPwdConfirm) {
+//             Toast("两次新密码不一致")
+//             return false
+//         }
+//         return true
+//     }
+//     checkPwd(val) {
+//         if (val.length < 6) {
+//             Toast("请至少输入六位")
+//         }
+//     }
+//     render() {
+//         return (<PopupDialog
+//             dialogTitle={<Title title="修改密码"></Title>}
+//             ref={(ref) => { this._root = ref }}
+//             width={0.5}
+//             height={0.45}
+//             dismissOnTouchOutside={false}
+//             dialogAnimation={slideAnimation}
+//             containerStyle={{ zIndex: 10, elevation: 10 }}
+//         >
+//             <ScrollView contentContainerStyle={styles.borderShadow} showsVerticalScrollIndicator={false}>
+//                 <View style={styles.item}>
+//                     <Item rounded bordered>
+//                         <Icon name='lock' style={styles.IconColor} />
+//                         <Input secureTextEntry placeholder='请输入原密码' placeholderTextColor="#BABABA" maxLength={30} />
+//                     </Item>
+//                 </View>
+//                 <View style={styles.item}>
+//                     <Item rounded >
+//                         <Icon name='unlock' color="#9DD9FF" style={styles.IconColor} />
+//                         <Input secureTextEntry placeholder='请输入新密码' placeholderTextColor="#BABABA" maxLength={30} />
+//                     </Item>
+//                 </View>
+//                 <View style={styles.item}>
+//                     <Item rounded >
+//                         <Icon name='unlock' color="#9DD9FF" style={styles.IconColor} />
+//                         <Input secureTextEntry placeholder='请确认新密码' placeholderTextColor="#BABABA" maxLength={30} />
+//                     </Item>
+//                 </View>
+//                 <View style={styles.footBtns}>
+//                     <TouchableOpacity activeOpacity={1} style={styles.btn} onPress={() => { this._root.dismiss() }}>
+//                         <Text style={{ color: globalStyle.color.primary }}>取消</Text>
+//                     </TouchableOpacity>
+//                     <TouchableOpacity activeOpacity={1} style={[styles.btn, { backgroundColor: globalStyle.color.primary }]} onPress={this.doChangePwd.bind(this)}>
+//                         <Text style={{ color: "#fff" }}>确定</Text>
+//                     </TouchableOpacity>
+//                 </View>
+//             </ScrollView>
+//         </ PopupDialog >)
+//     }
+// }
+
+// const styles = StyleSheet.create({
+//     item: {
+//         marginTop: 10
+//     },
+//     IconColor: {
+//         color: "#67C3FF"
+//     },
+//     footBtns: {
+//         flexDirection: "row",
+//         justifyContent: "space-around",
+//         paddingVertical: 10,
+//     },
+//     borderShadow: {
+//         paddingHorizontal: 20,
+//         shadowOffset: { width: 4, height: 4 },
+//         shadowColor: '#5ABEFF',
+//         shadowOpacity: 0.7,
+//         shadowRadius: 2,
+//         elevation: 2,
+//     },
+//     btn: {
+//         paddingHorizontal: 50,
+//         paddingVertical: 5,
+//         borderWidth: 1,
+//         borderColor: "#56BDFF",
+//         borderRadius: 20
+//     }
+// })

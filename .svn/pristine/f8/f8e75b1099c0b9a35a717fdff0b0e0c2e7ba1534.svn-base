@@ -1,0 +1,151 @@
+import React from "react";
+import {
+  StyleSheet,
+  ScrollView,
+  Text,
+  View,
+  StatusBar,
+  AsyncStorage,
+  DeviceEventEmitter,
+  BackHandler
+} from "react-native";
+
+import ScrollableTabView, {
+  DefaultTabBar
+} from "react-native-scrollable-tab-view";
+import Icon from "react-native-vector-icons/Ionicons";
+import { NavigationActions } from "react-navigation";
+
+import { LearnList } from "./learn";
+import Course from "./course";
+import Personal from "./personal";
+import WordBook from "./wordBook";
+import WordTest from "./wordTest";
+import {
+  BottomTabBar,
+  DownloadAPK,
+  TimeChecker,
+  Recharge
+} from "../components";
+import { utility, SoundManage } from "../utility";
+let soundManage = new SoundManage();
+
+import dataService from "../services";
+
+let tabInfos = [
+  {
+    title: "学习中心",
+    icon: "md-book",
+    components: tab => {
+      return <LearnList tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "课程中心",
+    icon: "md-cloud-download",
+    components: tab => {
+      return <Course tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "个人中心",
+    icon: "md-person",
+    components: tab => {
+      return <Personal tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "生词本",
+    icon: "md-bookmarks",
+    components: tab => {
+      return <WordBook tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "词汇测试",
+    icon: "md-thumbs-up",
+    components: tab => {
+      return <WordTest tabLabel={tab.title} key={tab.title} />;
+    }
+  }
+];
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {};
+  }
+  componentDidMount() {
+    utility.getUsersInfo().then(usersInfo => {
+      this.studentInfo = usersInfo.currUserInfo;
+      this.setState({
+        serverTime: this.studentInfo.serverTime
+      });
+      let localDate = Date.now();
+      let serverDate = utility.timeStrToObj(this.studentInfo.serverTime);
+      if (Math.abs(serverDate - localDate) > 3600000) {
+        // 大于一个小时
+        this.refs.timeChecker.show();
+      }
+    });
+    this.gotoLoginListener = DeviceEventEmitter.addListener("gotoLogin", () => {
+      AsyncStorage.removeItem("studentNo").then(res => {
+        let action = NavigationActions.reset({
+          index: 0,
+          actions: [NavigationActions.navigate({ routeName: "Login" })]
+        });
+        this.props.navigation.dispatch(action);
+      });
+    });
+    dataService.checkAppVersion().then(res => {
+      let data = res.data;
+      if (data) {
+        let needUpdate = data.needUpdate;
+        if (needUpdate === "Y") {
+          let versionData = data.version;
+          this.setState({
+            versionData: versionData
+          });
+          this.refs.downloadAPK.show();
+        }
+      }
+    });
+    BackHandler.addEventListener("hardwareBackPress", () => {});
+
+    this.rechargeListener = DeviceEventEmitter.addListener(
+      "showRecharge",
+      () => {
+        this.refs.rechargeDialog.show();
+      }
+    );
+  }
+  componentWillUnmount() {
+    this.gotoLoginListener && this.gotoLoginListener.remove();
+    soundManage.release();
+  }
+  render() {
+    return (
+      <View style={{ height: "100%" }}>
+        <StatusBar hidden={true} />
+        <ScrollableTabView
+          style={styles.container}
+          renderTabBar={() => <BottomTabBar tabInfos={tabInfos} />}
+          tabBarPosition="bottom"
+        >
+          {tabInfos.map(tab => {
+            return tab.components(tab);
+          })}
+        </ScrollableTabView>
+        <DownloadAPK ref="downloadAPK" versionData={this.state.versionData} />
+        <TimeChecker ref="timeChecker" serverTime={this.state.serverTime} />
+        <Recharge ref="rechargeDialog" />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    marginTop: 0
+  }
+});

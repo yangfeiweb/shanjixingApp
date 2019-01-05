@@ -1,0 +1,1177 @@
+import React from "react";
+import {
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  ART,
+  TouchableOpacity,
+  AsyncStorage,
+  Image,
+  DeviceEventEmitter
+} from "react-native";
+import { Header, NoticeBar, Loading } from "../../components";
+import { Col, Row, Grid } from "react-native-easy-grid";
+import { Button } from "native-base";
+import commonStyle from "../../globalStyle";
+import RNFetchBlob from "react-native-fetch-blob";
+import {
+  CourseColumns,
+  WordInfo,
+  StatusBar,
+  PreviewTimesDialog,
+  LearnOverDialog,
+  ReviewTipsDialog,
+  ExamTipsDialog,
+  MusicDialog,
+  ColumnClearConfirm,
+  History
+} from "./children";
+
+import { utility } from "../../utility";
+import { BOOK_TYPE_ENGLISH } from "../../utility/dict";
+
+import Icon from "react-native-vector-icons/FontAwesome";
+import { courseController, learnController } from "../../controller";
+
+import { learnDB, booksDB } from "../../db";
+const { Surface, Shape, Path } = ART;
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.initState();
+  }
+  componentDidMount() {
+    AsyncStorage.getItem("studentNo").then(studentNo => {
+      this.studentNo = studentNo;
+      const { params } = this.props.navigation.state;
+      this.bookNo = params.bookNo;
+      this.bookType = params.bookType;
+      this.learnType = params.learnType;
+      booksDB.setBookSyncFlag(studentNo, this.bookNo, 0);
+      this.initColumnsInfo();
+    });
+    this.examListener = DeviceEventEmitter.addListener(
+      "examReturnToLearn",
+      examType => {
+        if (examType == "before") {
+          this.initLearnWords(this.state.currColumnNo);
+        } else {
+          this.initState(true);
+          this.initColumnsInfo();
+        }
+      }
+    );
+  }
+
+  componentWillUnmount() {
+    this.previewTimer && clearTimeout(this.previewTimer);
+    this.examListener && this.examListener.remove();
+    if (!this.learnRecordSaved) {
+      this.saveLearnData(false);
+    }
+    if (!this.reviewRecordSaved) {
+      this.saveReviewData(false);
+    }
+    DeviceEventEmitter.emit("syncUpload");
+  }
+
+  initState(reset) {
+    if (reset) {
+      this.setState({
+        showAnswer: false,
+        showColumns: false,
+        previewing: false,
+        currColumnName: "",
+        currColumnNo: "",
+        columnWordCount: 0,
+        columnRightCount: 0,
+        columnErrCount: 0,
+        bookWordCount: 0,
+        bookRightCount: 0,
+        bookErrCount: 0,
+        reviewTotal: 0,
+        reivewRightCount: 0,
+        historyData: [],
+        preivewData: {}
+      });
+    } else {
+      this.state = {
+        showAnswer: false,
+        showColumns: false,
+        previewing: false,
+        currColumnName: "",
+        currColumnNo: "",
+        columnWordCount: 0,
+        columnRightCount: 0,
+        columnErrCount: 0,
+        bookWordCount: 0,
+        bookRightCount: 0,
+        bookErrCount: 0,
+        reviewTotal: 0,
+        reivewRightCount: 0,
+        historyData: [],
+        preivewData: {}
+      };
+    }
+
+    this.learnRecordSaved = false; // 记录是否已更新到数据库，没有更新的时候在组建销毁前更新
+    this.reviewRecordSaved = false;
+
+    this.reviewRightWords = []; // 记录review时的正确单词，最后统一更新error_word 表， 如果有单词reviewNum 为0 ，需要向新词表中插入数据
+    this.newRightWords = []; // 记录要插入正确词表的单词
+    this.newErrorWords = []; // 记录要插入错词表的单词
+    this.newReviewWords = []; // 记录要更新error_word表的数据且要插入新词表的单词--之前错过，插入过error_word 表，一直没有正确的单词
+
+    this.reivewTrackList = []; // 复习轨迹
+    this.newTrackList = []; // 学习轨迹
+    this.wordListObj = {}; // 单词对象集合
+  }
+  // 展示单词信息
+  showWordInfo(data, animate) {
+    // 根据单词type，状态切换，展示学习进度或者，review进度
+    this.changeAnimate = false;
+    if (data) {
+      this.setState({
+        showAnswer: false
+      });
+      // if (data.isReview) {
+      //   this.setState({
+      //     learnState: "review",
+      //     showAnswer: false
+      //   });
+      // } else {
+      //   this.setState({
+      //     learnState: "learn",
+      //     showAnswer: false
+      //   });
+      // }
+      this.wordStartTime = new Date();
+      this.refs.wordInfo.setWordData(data, animate, this.fromHistory);
+    } else {
+    }
+  }
+
+  initColumnsInfo() {
+    this.refs.loading.show();
+    courseController
+      .getUserColumnsData(this.studentNo, this.bookNo)
+      .then(data => {
+        let currColumnData = data.currColumnData;
+        if (currColumnData) {
+          this.setState({
+            bookInfo: data.bookInfo,
+            columns: data.columnInfos,
+            currColumnName: currColumnData.name,
+            currColumnNo: currColumnData.columnNo,
+            columnWordCount: currColumnData.words,
+            columnRightCount: currColumnData.rightNum,
+            columnErrCount: currColumnData.errorNum,
+            bookWordCount: data.bookInfo.words,
+            bookRightCount: data.bookInfo.totalRight,
+            bookErrCount: data.bookInfo.totalError
+          });
+          if (
+            this.bookType === BOOK_TYPE_ENGLISH &&
+            currColumnData.rightNum == 0 &&
+            currColumnData.errorNum == 0
+          ) {
+            this.refs.loading && this.refs.loading.hide();
+            this.refs.examTipsDialog.show();
+          } else {
+            this.initLearnWords(currColumnData.columnNo);
+          }
+        } else {
+          this.setState({
+            bookInfo: data.bookInfo,
+            columns: data.columnInfos,
+            bookWordCount: data.bookInfo.words,
+            bookRightCount: data.bookInfo.totalRight,
+            bookErrCount: data.bookInfo.totalError
+          });
+          this.initReviewWords();
+        }
+      });
+  }
+
+  initLearnWords(columnNo) {
+    learnController
+      .initLearnTrack(this.studentNo, this.bookNo, columnNo)
+      .then(res => {
+        if (res.resetColumnWords) {
+          this.initColumnsInfo();
+          return;
+        }
+        this.refs.loading && this.refs.loading.hide();
+        let reviewWords = res.reviewWords;
+        let newWords = res.newWords;
+        reviewWords.forEach(item => {
+          item["errStatus"] = 10;
+          let wordNo = item.wordNo;
+          this.reivewTrackList.push(wordNo);
+          this.wordListObj[wordNo] = item;
+        });
+        newWords.forEach(item => {
+          item["errStatus"] = 10;
+          let wordNo = item.wordNo;
+          this.newTrackList.push(wordNo);
+          this.wordListObj[wordNo] = item;
+        });
+        // 处理异常数据
+        if (this.state.columnRightCount < this.state.columnWordCount) {
+          let newWordCount = newWords.length;
+          if (
+            newWordCount + this.state.columnRightCount <
+            this.state.columnWordCount
+          ) {
+            let offsetCount = this.state.columnWordCount - newWordCount;
+            learnDB
+              .updateColumnRightWords(
+                this.studentNo,
+                columnNo,
+                offsetCount,
+                this.learnType
+              )
+              .then(success => {
+                this.setState({
+                  columnRightCount: offsetCount
+                });
+                if (newWordCount === 0) {
+                  this.initColumnsInfo();
+                }
+              });
+          }
+
+          if (newWordCount === 0) {
+            return;
+          }
+        }
+
+        this.setState({
+          reviewTotal: reviewWords.length
+        });
+        this.currWordIdx = 0;
+        let currWord;
+        if (this.reivewTrackList.length > 0) {
+          currWord = reviewWords[0];
+          // this.learnState = "review";
+          this.setState({
+            learnState: "review"
+          });
+        } else {
+          currWord = newWords[0];
+          // this.learnState = "learn";
+          this.setState({
+            learnState: "learn"
+          });
+        }
+        console.log(newWords);
+        this.showWordInfo(currWord);
+      });
+  }
+
+  initReviewWords() {
+    learnController
+      .initReviewTrack(this.studentNo, this.bookNo)
+      .then(reviewWords => {
+        this.refs.loading && this.refs.loading.hide();
+        if (reviewWords.length > 0) {
+          reviewWords.forEach(item => {
+            item["errStatus"] = 10;
+            let wordNo = item.wordNo;
+            this.reivewTrackList.push(wordNo);
+            this.wordListObj[wordNo] = item;
+          });
+          this.setState({
+            reviewTotal: reviewWords.length
+          });
+          this.currWordIdx = 0;
+          let currWord = reviewWords[0];
+          // this.learnState = "review";
+          this.setState({
+            learnState: "review"
+          });
+          this.showWordInfo(currWord);
+        } else {
+          this.refs.reviewOverDialog.show();
+        }
+      });
+  }
+
+  resetCurrColumnData(columnData) {
+    this.refs.loading.show();
+    this.refs.clearConfirmDialog.hide();
+    this.currWordIdx = 0;
+    this.fromHistory = false;
+    this.reviewRightWords = [];
+    this.reivewTrackList = [];
+    this.newTrackList = [];
+    this.wordListObj = {};
+    this.learnRecordSaved = false;
+    this.reviewRecordSaved = false;
+    this.setState({
+      currColumnName: columnData.name,
+      currColumnNo: columnData.columnNo,
+      columnWordCount: columnData.words,
+      columnRightCount: columnData.rightNum,
+      columnErrCount: columnData.errorNum,
+      showAnswer: false,
+      showColumns: false,
+      previewing: false,
+      reivewRightCount: 0,
+      historyData: []
+    });
+    // 记录学习栏目时间
+    learnController.checkLearnColumnRecord(
+      this.studentNo,
+      this.bookNo,
+      columnData.columnNo
+    );
+    if (
+      this.bookType === BOOK_TYPE_ENGLISH &&
+      columnData.rightNum == 0 &&
+      columnData.errorNum == 0
+    ) {
+      this.refs.loading && this.refs.loading.hide();
+      this.refs.examTipsDialog.show();
+    } else {
+      this.initLearnWords(columnData.columnNo);
+    }
+  }
+
+  // 获取到当前单词
+  getCurrWord() {
+    let currWord;
+    if (this.fromHistory) {
+      currWord = this.historyWord;
+    } else {
+      let wordNo;
+      if (this.state.learnState === "review") {
+        wordNo = this.reivewTrackList[this.currWordIdx];
+      } else {
+        wordNo = this.newTrackList[this.currWordIdx];
+      }
+      currWord = this.wordListObj[wordNo];
+    }
+    if (!currWord) {
+      debugger;
+    }
+    return currWord;
+  }
+
+  clickHistory(historyItem) {
+    let itemWordNo = historyItem.wordNo;
+    let itemWordInfo = this.wordListObj[itemWordNo];
+    itemWordInfo.historyErrStatus = historyItem.historyErrStatus;
+    this.fromHistory = true; // 标识本次操作是否是来自history，不能立即插入到tracklist中，点击正确或错误的时候才可以插入
+
+    this.historyWord = itemWordInfo;
+    this.showWordInfo(itemWordInfo, true);
+  }
+
+  clickAnswer() {
+    // 累计单词学习时长，从点击答案到点击错误不认识的时长，最长记录15秒
+    // this.refs.historyView.hide();
+    this.startAnswerTime = new Date();
+    let answerDuration = this.startAnswerTime - this.wordStartTime;
+    if (answerDuration > 15000) {
+      answerDuration = 15000;
+    }
+
+    let currWord = this.getCurrWord();
+    if (currWord["learnedTime"] === undefined) {
+      currWord["learnedTime"] = answerDuration;
+    } else {
+      currWord["learnedTime"] += answerDuration;
+    }
+
+    this.setState({
+      showAnswer: true,
+      showHistory: false
+    });
+  }
+
+  // 点击认识
+  clickRight() {
+    let currWord = this.getCurrWord();
+    let wordNo = currWord.wordNo;
+    // 累计单词学习时长，从点击答案到点击认识的时长，最长记录15秒
+    let rightDuration = new Date() - this.startAnswerTime;
+    if (rightDuration > 15000) {
+      rightDuration = 15000;
+    }
+    currWord["learnedTime"] += rightDuration;
+
+    this.insertToHistory(currWord, true);
+    if (!this.fromHistory) {
+      // 历史词点击正确不处理
+      let errStatus = currWord["errStatus"];
+      if (errStatus === 10) {
+        this.addInRightWords(currWord);
+      } else {
+        currWord["errStatus"] = errStatus + 1;
+        if (currWord["errStatus"] === 6) {
+          this.addInRightWords(currWord);
+        } else {
+          this.insertToTrackList(wordNo, currWord["errStatus"]);
+        }
+      }
+    } else {
+      this.changeAnimate = true;
+    }
+    if (this.fromHistory) {
+      this.fromHistory = false;
+      currWord.historyErrStatus = undefined;
+    } else {
+      this.currWordIdx++;
+    }
+    this.nextWord();
+  }
+
+  // 点击错误
+  clickError() {
+    let currWord = this.getCurrWord();
+    let wordNo = currWord.wordNo;
+    this.refs.wordInfo.playSound();
+    // 累计单词学习时长，从点击答案到点击错误不认识的时长，最长记录15秒
+    let errorDuration = new Date() - this.startAnswerTime;
+    if (errorDuration > 15000) {
+      errorDuration = 15000;
+    }
+    currWord["learnedTime"] += errorDuration;
+
+    if (this.fromHistory) {
+      // 1. 如果正确词记录中有该单词，则移除该单词
+      this.removeFromRightWords(currWord);
+      // 2. 先要删除trackList中 currIndex 之后的，跟本单词相同的词，再插入到trackList中
+      this.removeFromTrackList(wordNo, this.currWordIdx);
+      this.changeAnimate = true;
+    }
+    this.insertToHistory(currWord, false);
+
+    currWord["errStatus"] = 0;
+    this.addInErrorWords(currWord);
+    this.insertToTrackList(wordNo, 0);
+    // 错误时先更新 this.currWordIdx，防止此时点击history后位置出现错乱
+    if (this.fromHistory) {
+      this.fromHistory = false;
+      currWord.historyErrStatus = undefined;
+    } else {
+      this.currWordIdx++;
+    }
+    // console.log("----------this.newTracklist.err...", this.newTrackList);
+  }
+
+  // 点击下一个
+  clickNext() {
+    this.nextWord();
+    this.setState({
+      showAnswer: false,
+      showHistory: false
+    });
+  }
+
+  // 下一个单词
+  nextWord() {
+    if (this.state.learnState === "review") {
+      if (this.currWordIdx === this.reivewTrackList.length) {
+        // review over
+        this.saveReviewData(true);
+      } else {
+        let nextWordNo = this.reivewTrackList[this.currWordIdx];
+        let nextWord = this.wordListObj[nextWordNo];
+        this.showWordInfo(nextWord, this.changeAnimate);
+      }
+    } else {
+      if (this.currWordIdx === this.newTrackList.length) {
+        // learn over
+        this.saveLearnData(true);
+      } else {
+        let nextWordNo = this.newTrackList[this.currWordIdx];
+        let nextWord = this.wordListObj[nextWordNo];
+        this.showWordInfo(nextWord, this.changeAnimate);
+      }
+    }
+  }
+
+  // 插入到历史轨迹中，在单词errStatus改变前插入到history中
+  insertToHistory(wordData, right) {
+    let historyData = this.state.historyData;
+    historyData.splice(0, 0, {
+      uuid: utility.guid(),
+      wordNo: wordData.wordNo,
+      name: wordData.content1,
+      isRight: right,
+      historyErrStatus: wordData.errStatus
+    });
+    if (historyData.length == 20) {
+      historyData.pop();
+    }
+    this.setState({
+      historyData: historyData
+    });
+    this.refs.historyView.scrollToFirst();
+  }
+
+  saveReviewData(isOver) {
+    // 有新词要学
+    this.refs.loading.show();
+    // review数据存储到数据库， review插入可以做成异步的
+    return learnController.setBookReviewedDataToDB(this.reviewRightWords).then(
+      success => {
+        this.refs.loading && this.refs.loading.hide();
+        this.reviewRecordSaved = true;
+        this.reviewRightWords = [];
+        if (isOver) {
+          if (this.newTrackList.length > 0) {
+            this.setState({
+              historyData: []
+            });
+            this.currWordIdx = 0;
+            let learnWord = this.wordListObj[this.newTrackList[0]];
+            this.setState(
+              {
+                learnState: "learn"
+              },
+              () => {
+                this.showWordInfo(learnWord, true);
+              }
+            );
+          } else {
+            // 提示结束框
+            this.refs.reviewOverDialog.show();
+          }
+        }
+      },
+      err => {
+        this.refs.loading.hide();
+      }
+    );
+    // 学习新词
+  }
+
+  saveLearnData(isOver) {
+    // 本栏目结束，更新到数据库，之后弹出结束框
+    // new word 数据存储到数据库
+    return learnController
+      .setColumnLearnedDataToDB(
+        this.newRightWords,
+        this.newErrorWords,
+        this.newReviewWords,
+        this.newTrackList.length
+      )
+      .then(
+        success => {
+          this.refs.loading && this.refs.loading.hide();
+          this.newRightWords = [];
+          this.newErrorWords = [];
+          this.newReviewWords = [];
+          this.newTrackList = [];
+          this.learnRecordSaved = true;
+          isOver && this.refs.overDialog.show();
+        },
+        err => {
+          this.refs.loading && this.refs.loading.hide();
+        }
+      );
+  }
+
+  // 从正确列表中移除已经正确的单词
+  removeFromRightWords(word) {
+    if (this.state.learnState === "review") {
+      let idx = this.reviewRightWords.findIndex(item => {
+        return item.wordNo === word.wordNo;
+      });
+      if (idx !== -1) {
+        this.reviewRightWords.splice(idx, 1);
+        this.setState({
+          reivewRightCount: this.state.reivewRightCount - 1
+        });
+      }
+    } else {
+      if (word.reviewNum === 0) {
+        let idx = this.newReviewWords.findIndex(item => {
+          return item.wordNo === word.wordNo;
+        });
+        if (idx !== -1) {
+          this.newReviewWords.splice(idx, 1);
+          this.setState({
+            columnRightCount: this.state.columnRightCount - 1,
+            bookRightCount: this.state.bookRightCount - 1
+          });
+        }
+      } else {
+        let idx = this.newRightWords.findIndex(item => {
+          return item.wordNo === word.wordNo;
+        });
+        if (idx !== -1) {
+          this.newRightWords.splice(idx, 1);
+          this.setState({
+            columnRightCount: this.state.columnRightCount - 1,
+            bookRightCount: this.state.bookRightCount - 1
+          });
+        }
+      }
+    }
+  }
+
+  // 加入正确列表记录
+  addInRightWords(word) {
+    if (this.state.learnState === "review") {
+      this.reviewRightWords.push(word);
+      this.setState({
+        reivewRightCount: this.state.reivewRightCount + 1
+      });
+    } else {
+      if (word.reviewNum === 0) {
+        // 需要插入到newReviewWords 中
+        this.newReviewWords.push(word);
+      } else {
+        this.newRightWords.push(word);
+      }
+      this.setState({
+        columnRightCount: this.state.columnRightCount + 1,
+        bookRightCount: this.state.bookRightCount + 1
+      });
+    }
+  }
+
+  // 新词错误，加入到错误词列表
+  addInErrorWords(word) {
+    if (this.state.learnState === "learn" && word.reviewNum === undefined) {
+      if (
+        this.newErrorWords.findIndex(item => {
+          return item.wordNo === word.wordNo;
+        }) === -1
+      ) {
+        this.newErrorWords.push(word);
+
+        this.setState({
+          columnErrCount: this.state.columnErrCount + 1,
+          bookErrCount: this.state.bookErrCount + 1
+        });
+      }
+    }
+  }
+
+  // 记录当前轨迹
+  insertToTrackList(wordNo, errStatus) {
+    let trackPosition = [1, 3, 6, 12, 24, 48];
+    let offset = trackPosition[errStatus];
+    let nextPosition = this.currWordIdx + 1 + offset;
+    if (this.fromHistory) {
+      nextPosition = this.currWordIdx + offset;
+    }
+    if (this.state.learnState === "review") {
+      this.reivewTrackList.splice(nextPosition, 0, wordNo);
+    } else {
+      this.newTrackList.splice(nextPosition, 0, wordNo);
+    }
+  }
+
+  // 移除在指定位置之后的 trackList中的记录
+  removeFromTrackList(wordNo, startPosition) {
+    if (this.state.learnState === "review") {
+      let idx = this.reivewTrackList.findIndex((item, itemIdx) => {
+        return itemIdx >= startPosition && item === wordNo;
+      });
+      idx !== -1 && this.reivewTrackList.splice(idx, 1);
+    } else {
+      let idx = this.newTrackList.findIndex((item, itemIdx) => {
+        return itemIdx >= startPosition && item === wordNo;
+      });
+      console.log("-----------remove..from..track...list...", idx);
+      idx !== -1 && this.newTrackList.splice(idx, 1);
+    }
+  }
+
+  // 开始预览
+  startPreview(readTimes) {
+    this.readTimes = readTimes;
+    this.previewTimer = setTimeout(() => {
+      this.setState({
+        previewing: true
+      });
+    }, 200);
+    this.previewStoped = false;
+    // 获得本次preview--单词
+    let previewColumnNo = this.state.currColumnNo;
+    this.previewColumnIdx = this.state.columns.findIndex(item => {
+      return item.columnNo === previewColumnNo;
+    });
+    this.previewData = [];
+    for (let i = this.currWordIdx; i < this.newTrackList.length; i++) {
+      let item = this.newTrackList[i];
+      this.previewData.push(this.wordListObj[item]);
+    }
+    this.setState({
+      preivewData: {
+        columnNo: previewColumnNo,
+        columnName: this.state.currColumnName,
+        columnTotal: this.previewData.length,
+        previwWordIdx: 0
+      }
+    });
+    this.previwWordIdx = 0; // 当前预览的单词的index
+    this.playPreviewWords();
+  }
+  getNextPreviewData(columnData) {
+    return courseController
+      .getColumnWords(this.bookNo, columnData.columnNo)
+      .then(words => {
+        let preivewData = this.state.preivewData;
+        preivewData.columnNo = columnData.columnNo;
+        preivewData.columnName = columnData.name;
+        preivewData.columnTotal = words.length;
+        preivewData.previwWordIdx = 0;
+        this.setState({
+          preivewData: preivewData
+        });
+        this.previwWordIdx = 0;
+        this.previewData = words;
+      });
+  }
+  playPreviewWords() {
+    if (this.previewStoped) {
+      return;
+    }
+    let word = this.previewData[this.previwWordIdx];
+    this.showWordInfo(word, false);
+    this.refs.wordInfo.preview(this.readTimes).then(
+      success => {
+        this.previewNext();
+      },
+      err => {
+        this.previewNext();
+      }
+    );
+  }
+  previewNext() {
+    this.previwWordIdx++;
+    if (this.previwWordIdx === this.previewData.length) {
+      this.previewColumnIdx++;
+      if (this.previewColumnIdx === this.state.columns.length) {
+        utility.Toast("本次预览已完毕！");
+        this.stopPreviewing();
+      } else {
+        let nextColumn = this.state.columns[this.previewColumnIdx];
+        this.getNextPreviewData(nextColumn).then(success => {
+          this.playPreviewWords();
+        });
+      }
+    } else {
+      let preivewData = this.state.preivewData;
+      preivewData.previwWordIdx = this.previwWordIdx;
+      this.setState({
+        preivewData: preivewData
+      });
+      this.playPreviewWords();
+    }
+  }
+
+  stopPreviewing() {
+    this.previewStoped = true;
+    this.setState({ previewing: false });
+    this.refs.wordInfo.stopPreview();
+    let currWord = this.wordListObj[this.newTrackList[this.currWordIdx]];
+    this.showWordInfo(currWord, true);
+  }
+
+  render() {
+    const { params } = this.props.navigation.state;
+    const path = new Path()
+      .moveTo(0, 0)
+      .lineTo(60, 50)
+      .lineTo(60, 250)
+      .lineTo(0, 300)
+      .close();
+    return (
+      <View style={styles.learnRoot}>
+        <Header
+          title={
+            this.state.previewing
+              ? this.state.preivewData.columnName
+              : this.state.currColumnName
+          }
+          onBack={() => {
+            DeviceEventEmitter.emit("refreshBookList");
+          }}
+        >
+          <View slot="right" style={styles.preview}>
+            <TouchableOpacity
+              style={[
+                styles.previewContent,
+                {
+                  display: this.state.learnState === "learn" ? "flex" : "none"
+                }
+              ]}
+              onPress={() => {
+                if (this.state.previewing) {
+                  // 停止预览
+                  this.stopPreviewing();
+                } else {
+                  this.refs.timesDialog.show();
+                }
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 20,
+                  color: this.state.previewing
+                    ? commonStyle.color.danger
+                    : "#1596d4"
+                }}
+              >
+                {this.state.previewing ? "停止预览" : "快速预览"}
+              </Text>
+              <Icon
+                name={this.state.previewing ? "pause-circle" : "play-circle"}
+                style={{
+                  fontSize: 30,
+                  marginLeft: 10,
+                  color: this.state.previewing
+                    ? commonStyle.color.danger
+                    : "#1596d4"
+                }}
+              />
+            </TouchableOpacity>
+          </View>
+        </Header>
+        <View style={styles.content}>
+          <Grid>
+            <Row style={{ height: 50 }}>
+              <History
+                ref="historyView"
+                historyData={this.state.historyData}
+                previewing={this.state.previewing}
+                onItemPress={item => {
+                  this.clickHistory(item);
+                }}
+                onHide={() => {
+                  this.setState({
+                    showHistory: false
+                  });
+                }}
+              />
+            </Row>
+            <Row>
+              <Col style={{ width: 60 }}>
+                <View
+                  style={[
+                    styles.leftBtn,
+                    { display: this.state.showColumns ? "none" : "flex" }
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      this.setState({ showColumns: true, showHistory: false });
+                      // this.refs.historyView.hide();
+                      this.refs.courseColumns.show();
+                    }}
+                  >
+                    <Surface width={60} height={300}>
+                      <Shape d={path} fill={commonStyle.color.primary} />
+                    </Surface>
+                    <View style={styles.leftBtnTexts}>
+                      <Text style={styles.letBtnText}>目</Text>
+                      <Text style={styles.letBtnText}>录</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </Col>
+              <Col>
+                <Row style={{ padding: 5 }}>
+                  <WordInfo
+                    ref="wordInfo"
+                    showAnswer={this.state.showAnswer}
+                    previewing={this.state.previewing}
+                    type={this.state.learnState}
+                    onAnswer={() => {
+                      this.clickAnswer();
+                    }}
+                    onNext={() => {
+                      this.clickNext();
+                    }}
+                    onSuccess={() => {
+                      this.clickRight();
+                    }}
+                    onError={() => {
+                      this.clickError();
+                    }}
+                  />
+                </Row>
+              </Col>
+              <Col style={{ width: 60 }}>
+                <Button
+                  light
+                  style={[
+                    styles.tagBtn,
+                    {
+                      display:
+                        this.state.showHistory ||
+                        this.state.previewing ||
+                        this.state.learnState === "review"
+                          ? "none"
+                          : "flex"
+                    }
+                  ]}
+                  onPress={() => {
+                    this.props.navigation.navigate("WordList", {
+                      bookNo: this.bookNo,
+                      columnNo: this.state.currColumnNo,
+                      columnName: this.state.currColumnName
+                    });
+                  }}
+                >
+                  <Icon name="list" style={{ fontSize: 30 }} />
+                </Button>
+                <Button
+                  light
+                  style={styles.tagBtn}
+                  onPress={() => {
+                    // this.refs.historyView.show();
+                    this.refs.musicDialog.show();
+                  }}
+                >
+                  {/* <Icon
+                    name="music"
+                    style={{
+                      fontSize: 30,
+                      color: this.state.playingMusic
+                        ? commonStyle.color.primary
+                        : "#707070"
+                    }}
+                  /> */}
+                  <Image
+                    source={require("../../assets/images/brain.png")}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      tintColor: this.state.playingMusic
+                        ? commonStyle.color.primary
+                        : "#707070"
+                    }}
+                  />
+                </Button>
+              </Col>
+            </Row>
+          </Grid>
+        </View>
+        <StatusBar
+          ref="statusBar"
+          showAnswer={this.state.showAnswer}
+          previewing={this.state.previewing}
+          previewData={this.state.preivewData}
+          type={this.state.learnState}
+          infoData={{
+            count: this.state.columnWordCount,
+            right: this.state.columnRightCount,
+            err: this.state.columnErrCount,
+            total: this.state.bookWordCount,
+            totalRight: this.state.bookRightCount,
+            totalErr: this.state.bookErrCount,
+            reviewTotal: this.state.reviewTotal,
+            reivewRightCount: this.state.reivewRightCount
+          }}
+        />
+        <CourseColumns
+          ref="courseColumns"
+          bookName={this.state.bookInfo && this.state.bookInfo.name}
+          columns={this.state.columns}
+          currColumnNo={this.state.currColumnNo}
+          previewing={this.state.previewing}
+          previewColumnNo={
+            this.state.preivewData && this.state.preivewData.columnNo
+          }
+          currRightCount={this.state.columnRightCount}
+          currErrCount={this.state.columnErrCount}
+          onHide={() => {
+            this.setState({ showColumns: false });
+          }}
+          onColumnPress={columnData => {
+            // 更新当前columnData 中的rightNum 和 errorNum
+            if (this.state.learnState === "review") {
+              utility.Toast("请先完成复习内容！");
+              return;
+            }
+            let columns = this.state.columns;
+            let currColumn = this.state.columns.find(item => {
+              return item.columnNo === this.state.currColumnNo;
+            });
+            currColumn.rightNum = this.state.columnRightCount;
+            currColumn.errorNum = this.state.columnErrCount;
+            this.setState({
+              columns: columns
+            });
+            let columnNo = columnData.columnNo;
+            if (this.state.previewing) {
+              // 预览时，点击切换单元，自动切换到该单元进行预览
+              this.previewStoped = true;
+              this.refs.wordInfo.stopPreview();
+              this.previewColumnIdx = this.state.columns.findIndex(item => {
+                return item.columnNo === columnNo;
+              });
+              this.getNextPreviewData(columnData).then(success => {
+                this.previewStoped = false;
+                this.playPreviewWords();
+              });
+            } else {
+              if (columnNo !== this.state.currColumnNo) {
+                // 点击之前学过的column，弹出清空提示
+                if (columnData.rightNum >= columnData.words) {
+                  this.perChangeColumn = columnData;
+                  this.refs.clearConfirmDialog.show();
+                  return;
+                } else {
+                  // 点击没有学完的，切换到该栏目
+                  this.saveLearnData().then(success => {
+                    this.resetCurrColumnData(columnData);
+                  });
+                }
+              }
+            }
+          }}
+        />
+        <PreviewTimesDialog
+          ref="timesDialog"
+          onPlay={readTimes => {
+            this.startPreview(readTimes);
+          }}
+        />
+        <ColumnClearConfirm
+          ref="clearConfirmDialog"
+          onOkClick={() => {
+            let columnData = this.perChangeColumn;
+            learnController
+              .clearColumnLearnRecord(
+                this.studentNo,
+                this.bookNo,
+                columnData.columnNo
+              )
+              .then(res => {
+                columnData.rightNum = 0;
+                columnData.errorNum = 0;
+                this.resetCurrColumnData(columnData);
+              });
+          }}
+        />
+
+        <LearnOverDialog
+          ref="overDialog"
+          columnTitle={this.state.currColumnName}
+          total={this.state.columnWordCount}
+          errCount={this.state.columnErrCount}
+          showExam={this.bookType === BOOK_TYPE_ENGLISH}
+          onColumnExam={() => {
+            this.props.navigation.navigate({
+              routeName: "LearnTest",
+              params: {
+                examType: "after",
+                bookName: this.state.bookInfo.name,
+                bookNo: this.bookNo,
+                columnNo: this.state.currColumnNo,
+                columnName: this.state.currColumnName
+              }
+            });
+          }}
+          onContinue={() => {
+            this.initState(true);
+            this.initColumnsInfo();
+          }}
+          onReturn={() => {
+            DeviceEventEmitter.emit("refreshBookList");
+            this.props.navigation.popToTop();
+          }}
+        />
+        <ReviewTipsDialog
+          ref="reviewOverDialog"
+          onReturn={() => {
+            this.props.navigation.popToTop();
+          }}
+        />
+        <ExamTipsDialog
+          ref="examTipsDialog"
+          onOK={() => {
+            this.props.navigation.navigate({
+              routeName: "LearnTest",
+              params: {
+                examType: "before",
+                bookName: this.state.bookInfo.name,
+                bookNo: this.bookNo,
+                columnNo: this.state.currColumnNo,
+                columnName: this.state.currColumnName
+              }
+            });
+          }}
+          onCancel={() => {
+            this.initLearnWords(this.state.currColumnNo);
+          }}
+        />
+        <MusicDialog
+          ref="musicDialog"
+          onPlayMusic={playing => {
+            this.setState({
+              playingMusic: playing
+            });
+          }}
+        />
+        <Loading ref="loading" />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  learnRoot: {
+    flex: 1,
+    position: "relative"
+  },
+
+  preview: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    height: "100%"
+  },
+
+  previewContent: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingRight: 17,
+    width: 150,
+    height: "100%"
+  },
+
+  content: {
+    width: "100%",
+    flex: 1
+    // backgroundColor: "green"
+  },
+  leftBtn: {
+    flex: 1,
+    justifyContent: "center",
+    position: "relative"
+  },
+  leftBtnTexts: {
+    position: "absolute",
+    left: 0,
+    top: "50%",
+    transform: [{ translateY: -40 }],
+    width: 60,
+    height: 80,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  letBtnText: {
+    color: "#fff",
+    fontSize: 20
+  },
+  tagBtn: {
+    height: 90,
+    width: 60,
+    marginTop: 12,
+    justifyContent: "center"
+  }
+});

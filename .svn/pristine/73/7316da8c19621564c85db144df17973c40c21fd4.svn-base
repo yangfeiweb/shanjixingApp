@@ -1,0 +1,226 @@
+import React, { Component } from "react";
+import {
+  View,
+  StyleSheet,
+  processColor,
+  AsyncStorage,
+  ScrollView
+} from "react-native";
+import {
+  Content,
+  Text,
+  Grid,
+  Col,
+  Row,
+  Picker,
+  Item,
+  Form,
+  Body
+} from "native-base";
+import DatePicker from "react-native-datepicker";
+import {
+  VictoryChart,
+  VictoryGroup,
+  VictoryBar,
+  VictoryTheme,
+  VictoryZoomContainer
+} from "victory-native";
+import chartStyle from "./chartStyle";
+import { utility } from "../../../utility";
+import { learnController } from "../../../controller";
+import { mainDB } from "../../../db";
+const db = new mainDB();
+export default class ChartByMonth extends Component {
+  constructor(props) {
+    super(props);
+  }
+  componentDidMount() {
+    let dates = utility.getCurrMonthDay(utility.dateToDateStr(new Date()));
+    this.getLearnRecord(dates);
+  }
+  state = {
+    selected: undefined,
+    time: "2018-04",
+    barChartWidth: 0,
+    totalMinute: 0,
+    totalNum: 0,
+    days: [],
+    studyTime: [], //学习时长
+    studyWordNum: [], //学习单词数量
+    maxDomainY: 50
+  };
+  getLearnRecord(week) {
+    const { showLoading, hideLoading } = this.props;
+    let days = week.map(item => this.formatDateStr(item, true) + "日");
+    this.setState({
+      days: days
+    });
+    showLoading && showLoading();
+    AsyncStorage.getItem("studentNo")
+      .then(studentNo => {
+        if (studentNo) {
+          let len = week.length;
+          let start = week[0] + " 00:00:00";
+          let end = week[len - 1] + " 23:59:59";
+          learnController
+            .getLearnStatistics(studentNo, start, end)
+            .then(res => {
+              if (res) {
+                let totalMinute = 0;
+                let totalNum = 0;
+                let studyTime = []; //学习时长
+                let studyWordNum = []; //学习单词数量
+                let maxDomainY = 0;
+                week.forEach((item, index) => {
+                  // debugger;
+                  const time = week[index];
+                  let day = this.formatDateStr(time, true) + "日";
+                  let date = res.find(
+                    item => item["date(createTime)"] === time
+                  );
+                  if (date) {
+                    let m = Math.ceil(date.learnedTime / 1000 / 60); //学习的时长 ----单位分钟
+                    totalMinute += m;
+                    if (maxDomainY < m) {
+                      maxDomainY = m;
+                    }
+                    let num =  date.rightNum;
+                    if (maxDomainY < num) {
+                      maxDomainY = num;
+                    }
+                    totalNum += num;
+                    studyWordNum[index] = { x: day, y: num };
+                    studyTime[index] = { x: day, y: m };
+                  } else {
+                    studyWordNum[index] = { x: day, y: 0 };
+                    studyTime[index] = { x: day, y: 0 };
+                  }
+                });
+                maxDomainY += 20;
+                this.setState({
+                  studyWordNum: studyWordNum,
+                  studyTime: studyTime,
+                  maxDomainY: maxDomainY,
+                  time: this.formatDateStr(week[0]) + "月",
+                  totalMinute: totalMinute,
+                  totalNum: totalNum
+                });
+              }
+              hideLoading && hideLoading();
+            })
+            .catch(err => {
+              hideLoading && hideLoading();
+            });
+        }
+      })
+      .catch(err => {
+        hideLoading && hideLoading();
+      });
+  }
+  selectDate(date) {
+    utility.getCurrMonthDay(date);
+  }
+  formatDateStr(str, bool) {
+    let arr = str.split("-");
+    let after = arr.splice(2, 1);
+    if (bool) {
+      //返回日
+      return after.join("");
+    } else {
+      //返回年月
+      return arr.join("-");
+    }
+  }
+  render() {
+    return (
+      <Content>
+        <View style={chartStyle.content}>
+          <Grid>
+            <Row style={{ height: 40 }}>
+              <Col style={chartStyle.container}>
+                <View style={chartStyle.container}>
+                  <View
+                    style={[
+                      chartStyle.black,
+                      { backgroundColor: "#56BDFF", marginRight: 10 }
+                    ]}
+                  />
+                  <Text style={chartStyle.text}>
+                    学习时间 (分钟):{this.state.totalMinute}
+                  </Text>
+                </View>
+                <View style={[{ marginLeft: 10 }, chartStyle.container]}>
+                  <View
+                    style={[
+                      chartStyle.black,
+                      { backgroundColor: "#FFF553", marginRight: 10 }
+                    ]}
+                  />
+                  <Text style={chartStyle.text}>
+                    单词数量 (个):{this.state.totalNum}
+                  </Text>
+                </View>
+              </Col>
+              <Col style={{ alignItems: "center", justifyContent: "center" }}>
+                <Text style={chartStyle.text}>{this.state.time}</Text>
+                <DatePicker
+                  date={this.state.date}
+                  style={{ width: "100%", position: "absolute" }}
+                  format="YYYY-MM-DD"
+                  minDate="2017-01-01"
+                  mode="date"
+                  androidMode="calendar"
+                  showIcon={false}
+                  hideText={true}
+                  maxDate={utility.dateToDateStr(new Date())}
+                  onDateChange={date => {
+                    this.selectDate(date);
+                  }}
+                />
+              </Col>
+              <Col
+                style={{ alignItems: "flex-end", justifyContent: "center" }}
+              />
+            </Row>
+          </Grid>
+          <View style={{ height: 350 }}>
+            <View style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+              <ScrollView
+                horizontal
+                style={{ height: "100%" }}
+                showsHorizontalScrollIndicator={false}
+              >
+                <VictoryChart
+                  width={2500}
+                  height={340}
+                  domain={{ x: [0, 31], y: [0, this.state.maxDomainY] }}
+                >
+                  <VictoryGroup
+                    padding={0}
+                    offset={20}
+                    samples={100}
+                    categories={{ x: this.state.days }}
+                    colorScale={["#56BDFF", "#FFF553"]}
+                  >
+                    <VictoryBar
+                      padding={0}
+                      width={10}
+                      labels={d => d.y}
+                      data={this.state.studyTime}
+                    />
+                    <VictoryBar
+                      width={10}
+                      padding={0}
+                      labels={d => d.y}
+                      data={this.state.studyWordNum}
+                    />
+                  </VictoryGroup>
+                </VictoryChart>
+              </ScrollView>
+            </View>
+          </View>
+        </View>
+      </Content>
+    );
+  }
+}

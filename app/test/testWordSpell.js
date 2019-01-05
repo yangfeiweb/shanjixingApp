@@ -1,0 +1,105 @@
+/**
+ * Sample React Native App
+ * https://github.com/facebook/react-native
+ * @flow
+ */
+
+import React from "react";
+import { AppRegistry, StyleSheet, Text, View, Switch } from "react-native";
+import { WordSpell } from "../components";
+import { Button } from "native-base";
+
+import { utility } from "../utility";
+
+export default class extends React.Component {
+  constructor() {
+    super();
+    this.wordList = [
+      { word: "sprite", title: "精灵，雪碧" },
+      { word: "Hello Word", title: "世界你好！" },
+      { word: "teacher's day", title: "教师节" },
+      { word: "pay", title: "支付" },
+      { word: "as far as ...be concerned", title: "至于(就)..." }
+    ];
+    this.currIdx = 0;
+    this.state = {
+      examMode: false
+    };
+  }
+  componentDidMount() {
+    let wordInfo = this.wordList[this.currIdx];
+    this.refs.wordSpell.setWord(wordInfo.word, wordInfo.title);
+  }
+  nextWord() {
+    this.currIdx++;
+    if (this.currIdx === this.wordList.length) {
+      this.currIdx = 0;
+    }
+    let wordInfo = this.wordList[this.currIdx];
+    this.refs.wordSpell.setWord(wordInfo.word, wordInfo.title);
+  }
+  examOver() {
+    this.refs.wordSpell.examOver();
+  }
+  render() {
+    return (
+      <View style={styles.container}>
+        <WordSpell ref="wordSpell" examMode={this.state.examMode} onOver={(isErr, result)=>{
+        }} />
+        <View style={styles.btnRow}>
+          <Text>exam模式</Text>
+          <Switch
+            value={this.state.examMode}
+            onValueChange={val => {
+              this.setState({
+                examMode: val
+              });
+            }}
+          />
+          <Button
+            style={styles.btn}
+            onPress={() => {
+              this.nextWord();
+            }}
+          >
+            <Text>next</Text>
+          </Button>
+          <Button
+            style={styles.btn}
+            onPress={() => {
+              this.examOver();
+            }}
+          >
+            <Text>exam over</Text>
+          </Button>
+        </View>
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F5FCFF"
+  },
+  btnRow: {
+    height: 100,
+    marginTop: 20,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%"
+  },
+  btn: {
+    alignSelf: "center",
+    width: 160,
+    height: 50,
+    borderRadius: 10,
+    justifyContent: "center"
+  },
+  progressContainer: {
+    flex: 1
+  }
+});

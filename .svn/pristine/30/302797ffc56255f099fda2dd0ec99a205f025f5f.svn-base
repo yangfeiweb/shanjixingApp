@@ -1,0 +1,203 @@
+import React from "react";
+import {
+  StyleSheet,
+  ScrollView,
+  Text,
+  View,
+  StatusBar,
+  AsyncStorage,
+  DeviceEventEmitter,
+  BackHandler
+} from "react-native";
+
+import ScrollableTabView, {
+  DefaultTabBar
+} from "react-native-scrollable-tab-view";
+import Icon from "react-native-vector-icons/Ionicons";
+import { NavigationActions } from "react-navigation";
+
+import { LearnList } from "./learn";
+import Course from "./course";
+import Personal from "./personal";
+import WordBook from "./wordBook";
+import WordTest from "./wordTest";
+import {
+  BottomTabBar,
+  DownloadAPK,
+  TimeChecker,
+  Recharge,
+  SyncDownload,
+  BindMobile,
+  Loading
+} from "../components";
+import { utility, SoundManage } from "../utility";
+
+import dataService from "../services";
+import syncController from "../controller/sync";
+let soundManage = new SoundManage();
+
+let tabInfos = [
+  {
+    title: "学习中心",
+    icon: "md-book",
+    components: tab => {
+      return <LearnList tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "课程中心",
+    icon: "md-cloud-download",
+    components: tab => {
+      return <Course tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "个人中心",
+    icon: "md-person",
+    components: tab => {
+      return <Personal tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "生词本",
+    icon: "md-bookmarks",
+    components: tab => {
+      return <WordBook tabLabel={tab.title} key={tab.title} />;
+    }
+  },
+  {
+    title: "词汇测试",
+    icon: "md-thumbs-up",
+    components: tab => {
+      return <WordTest tabLabel={tab.title} key={tab.title} />;
+    }
+  }
+];
+
+export default class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {};
+    this.showLoading = this.showLoading.bind(this);
+    this.hideLoading = this.hideLoading.bind(this);
+  }
+  componentDidMount() {
+    // this.refs.bindMobile.show();
+    utility.getUsersInfo().then(usersInfo => {
+      this.studentInfo = usersInfo.currUserInfo;
+      console.log("------------------    this.studentInfo ", this.studentInfo);
+      if (!this.studentInfo.mobile) {
+        this.refs.bindMobile.show();
+      }
+      this.setState({
+        serverTime: this.studentInfo.serverTime
+      });
+      let localDate = Date.now();
+      let serverDate = utility.timeStrToObj(this.studentInfo.serverTime);
+      if (Math.abs(serverDate - localDate) > 3600000) {
+        // 大于一个小时
+        this.refs.timeChecker.show();
+      } else {
+        this.checkDownloadSync();
+      }
+    });
+    this.gotoLoginListener = DeviceEventEmitter.addListener("gotoLogin", () => {
+      AsyncStorage.removeItem("studentNo").then(res => {
+        let action = NavigationActions.reset({
+          index: 0,
+          actions: [NavigationActions.navigate({ routeName: "Login" })]
+        });
+        this.props.navigation.dispatch(action);
+      });
+    });
+    DeviceEventEmitter.addListener("showAPKDownload", () => {
+      this.refs.downloadAPK.show();
+    });
+    dataService.checkAppVersion().then(res => {
+      let data = res.data;
+      if (data) {
+        let needUpdate = data.needUpdate;
+        if (needUpdate === "Y") {
+          let versionData = data.version;
+          this.setState({
+            versionData: versionData
+          });
+          DeviceEventEmitter.emit("showAPKDownload");
+        }
+      }
+    });
+    BackHandler.addEventListener("hardwareBackPress", () => {});
+    this.rechargeListener = DeviceEventEmitter.addListener(
+      "showRecharge",
+      () => {
+        this.refs.rechargeDialog.show();
+      }
+    );
+    // this.refs.syncDownload.show()
+  }
+  componentWillUnmount() {
+    this.gotoLoginListener && this.gotoLoginListener.remove();
+    soundManage.release();
+  }
+  showLoading() {
+    this.refs.Loading && this.refs.Loading.show();
+  }
+  hideLoading() {
+    this.refs.Loading && this.refs.Loading.hide();
+  }
+  checkDownloadSync() {
+    syncController.checkDownloadSync(this.studentNo).then(res => {
+      if (res) {
+        this.refs.syncDownload.show();
+      } else {
+        // 检查上传同步
+        DeviceEventEmitter.emit("syncUpload");
+      }
+    });
+  }
+  render() {
+    return (
+      <View style={{ height: "100%" }}>
+        <StatusBar hidden={true} />
+        <ScrollableTabView
+          style={styles.container}
+          renderTabBar={() => <BottomTabBar tabInfos={tabInfos} />}
+          tabBarPosition="bottom"
+        >
+          {tabInfos.map(tab => {
+            return tab.components(tab);
+          })}
+        </ScrollableTabView>
+        <DownloadAPK ref="downloadAPK" versionData={this.state.versionData} />
+        <TimeChecker
+          ref="timeChecker"
+          serverTime={this.state.serverTime}
+          onSetted={() => {
+            this.checkDownloadSync();
+          }}
+        />
+        <Recharge ref="rechargeDialog" />
+        <SyncDownload
+          ref="syncDownload"
+          onSynced={() => {
+            DeviceEventEmitter.emit("refreshBookList");
+            // DeviceEventEmitter.emit("syncUpload");
+          }}
+        />
+
+        <BindMobile
+          ref="bindMobile"
+          showLoading={this.showLoading}
+          hideLoading={this.hideLoading}
+        />
+        <Loading ref="Loading" title="  " />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    marginTop: 0
+  }
+});

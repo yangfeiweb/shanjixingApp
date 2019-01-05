@@ -1,0 +1,24 @@
+import reqUrl from "../urlConfig";
+import { httpRequest } from "../../utility";
+import DeviceInfo from "react-native-device-info";
+
+let VERSION = DeviceInfo.getBuildNumber();
+// 检查更新
+let checkAppVersion = () =>
+  httpRequest(reqUrl.CHECK_UPDATE, {
+    osType: "ANDROID",
+    versionCode: VERSION
+  });
+
+// 同步课本信息到云端
+let syncBookDataToCloud = (syncType, data) =>
+  httpRequest(
+    reqUrl.SYNC_DATA,
+    {
+      syncType: syncType,
+      data: data
+    },
+    "POST"
+  );
+
+export default { checkAppVersion, syncBookDataToCloud };

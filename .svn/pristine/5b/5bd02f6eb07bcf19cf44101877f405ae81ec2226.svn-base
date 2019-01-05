@@ -1,0 +1,262 @@
+import React, { Component } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Animated,
+  ToastAndroid,
+  AsyncStorage
+} from "react-native";
+import Icons from "react-native-vector-icons/Entypo";
+import { Header, Loading, ProgressBar, WordTestBase } from "../../components";
+import { wordTestDB, learnDB } from "../../db";
+import TopicItem from "./children/TopicItem";
+import globalStyle from "../../globalStyle";
+import { utility } from "../../utility";
+import { TEST_TYPE } from "../../utility/dict";
+
+const db = new wordTestDB();
+export default class Test extends Component {
+  constructor(props) {
+    super(props);
+    this.params = this.props.navigation.state.params;
+    this.Loading = null;
+    this.maxNumber = 100;
+    this.isPause = false;
+    this.state = {
+      gradeText: "等级: " + this.params.name,
+      pauseBtnText: "暂停",
+      errorScore: 0,
+      rightScore: 0,
+      testEnd: false, //测试是否结束
+      resultIcon: "emoji-sad", //测试的结果表情
+      resultText: "", //测试后的结果文字
+      result: ""
+    };
+  }
+
+  componentDidMount() {
+    let { grade } = this.params;
+    this.Loading.show();
+    let params = grade + `='1'`;
+    db.getData(params).then(
+      res => {
+        this.WtProc(res);
+        this.Loading.hide();
+      },
+      err => {
+        this.Loading.hide();
+      }
+    );
+  }
+  WtProc(results) {
+    //随机产生一百个测试单词
+    let len = results.length;
+    let randIndexString = "";
+    let arr = [];
+    for (let a = 0; a < this.maxNumber; ) {
+      let num = utility.baseRandom(1, len);
+      if (randIndexString.indexOf("," + num.toString() + ",") >= 0) {
+        continue;
+      } else {
+        arr.push(results.item(num));
+        randIndexString += "," + num.toString() + ",";
+      }
+      a++;
+    }
+    this.refs.WordTestBase && this.refs.WordTestBase.setData(arr);
+  }
+
+  wordTestEnd(result) {
+    let { typeScore, name } = this.params;
+    let rightScore = result.rightScore;
+    let noAnswer = result.noAnswer;
+    let testName = "词汇量测试:  " + name;
+    let score = parseInt(
+      typeScore * (rightScore + noAnswer * 0.25 - 0.35 * this.maxNumber) / 0.65
+    );
+    let list = result.wordList;
+    this.viewWordTest_totalF(score);
+    AsyncStorage.getItem("studentNo").then(studentNo => {
+      if (score < 0) {
+        score = 0;
+      }
+      let obj = {
+        score: score,
+        name: testName,
+        studentNo: studentNo,
+        total: this.maxNumber,
+        rightCount: rightScore,
+        errorCount: result.errorScore,
+        startTime: result.startTime,
+        finishedTime: result.finishedTime,
+        examType: TEST_TYPE.WORD_TEST
+      };
+      let arr = list.map(item => {
+        let obj = {
+          bookNo: "",
+          wordNo: item.id,
+          wordName: "",
+          answerItem: item.selected
+        };
+        let topics = item.topics;
+        topics &&
+          topics.forEach(element => {
+            if (element.right) {
+              obj.rightItem = element.letter;
+            }
+            if (element.letter === "A") {
+              obj["itemA"] = element.topic;
+            }
+            if (element.letter === "B") {
+              obj["itemB"] = element.topic;
+            }
+            if (element.letter === "C") {
+              obj["itemC"] = element.topic;
+            }
+            if (element.letter === "D") {
+              obj["itemD"] = element.topic;
+            }
+          });
+        return obj;
+      });
+      learnDB.insertExamRecord(obj, arr).then(res => {}, err => {});
+    });
+  }
+  _renderTopic() {
+    return (
+      <WordTestBase
+        title={this.state.gradeText}
+        result={this.wordTestEnd.bind(this)}
+        ref="WordTestBase"
+      />
+    );
+  }
+  viewWordTest_totalF(result) {
+    if (result <( 0.35 * this.maxNumber)) {
+      this.setState({
+        resultText: "您的词汇量太少了!要努力啊...",
+        testEnd: true
+      });
+    } else {
+      this.setState({
+        testEnd: true,
+        resultIcon: "emoji-flirt",
+        resultText: "您的词汇量测试结果为:",
+        result: result
+      });
+    }
+  }
+  _renderResult() {
+    return (
+      <View style={[styles.container, { justifyContent: "center" }]}>
+        <View style={[styles.AnimatedView, styles.resultView]}>
+          <View>
+            <Text style={styles.resultTitle}>词汇量测试结果</Text>
+          </View>
+          <View style={{ alignItems: "center" }}>
+            <Icons name={this.state.resultIcon} size={100} color="#BFBFBF" />
+            <Text style={{ fontSize: 16, color: "#BFBFBF", marginTop: 10 }}>
+              {this.state.resultText}
+            </Text>
+            <Text
+              style={{
+                fontSize: 30,
+                color: globalStyle.color.danger,
+                marginTop: 10
+              }}
+            >
+              {this.state.result}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+  render() {
+    return (
+      <View style={{ flex: 1 }}>
+        <Header title="词汇测试" />
+        <View style={styles.title}>
+          {this.state.testEnd ? this._renderResult() : this._renderTopic()}
+        </View>
+        <Loading
+          ref={ref => {
+            this.Loading = ref;
+          }}
+          title="试卷生成中..."
+        />
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center"
+  },
+  title: {
+    flex: 1,
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 30
+  },
+  wordText: {
+    fontSize: 36,
+    fontWeight: "bold",
+    color: globalStyle.color.primary
+  },
+  AnimatedView: {
+    width: "60%",
+    alignItems: "center"
+  },
+  resultView: {
+    height: 300,
+    // position: "absolute",
+    // top: 0,
+    // left: "50%",
+    justifyContent: "space-around"
+  },
+  pauseBtn: {
+    width: 200,
+    backgroundColor: globalStyle.color.primary,
+    borderRadius: 5,
+    paddingVertical: 15,
+    alignItems: "center"
+  },
+  rightNum: {
+    flex: 1,
+    paddingHorizontal: 50,
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  footer: {
+    width: "100%",
+    height: 70,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 30,
+    alignItems: "flex-end",
+    justifyContent: "center"
+  },
+  topicsBox: {
+    width: "70%",
+    marginTop: 30
+  },
+  resultTitle: {
+    color: globalStyle.color.primary,
+    fontSize: 30,
+    fontWeight: "400"
+  },
+  progressBarContainer: {
+    width: "70%",
+    alignItems: "center",
+    flexDirection: "row"
+  }
+});

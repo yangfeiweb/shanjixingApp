@@ -1,0 +1,429 @@
+import React, { Component } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Animated
+} from "react-native";
+import Sound from "react-native-sound";
+import PropTypes from "prop-types";
+import ProgressBar from "./ProgressBar";
+import globalStyle from "../globalStyle";
+import WordSpell from "./WordSpell";
+import { utility, SoundManage } from "../utility";
+import RNFetchBlob from "react-native-fetch-blob";
+const dirs = RNFetchBlob.fs.dirs;
+const courseRoot = dirs.DocumentDir + "/course/";
+let soundManage = new SoundManage();
+/**
+ * 单词拼写测试的测试逻辑
+ */
+export default class extends Component {
+  constructor(props) {
+    super(props);
+    this.length = 0;
+    this.currIndex = 0;
+    this.currWord = null;
+    this.isPause = false;
+    this.rigthTimer = null;
+    this.errorTimer = null;
+    this.progressBar = null; //进度条
+    this.wordList = null; //测试的单词列表
+    this.startTime = null;
+    this.isBack = false;
+    this.noAnswer = 0; //未作答的个数
+    this.playTimer = null;
+    this.volume = null;
+    this.isOver = false;
+    this.state = {
+      title: props.title,
+      data: [],
+      opacity: 0,
+      height: new Animated.Value(0),
+      disabled: false,
+      word: {},
+      pauseBtnOpacity: 0,
+      rightScore: 0, //正确得分
+      errorScore: 0, //错误得分
+      currProgress: 0,
+      totalNumber: 0, //测试的总数据量
+      pauseBtnText: "暂停"
+    };
+    this.onCutDownOver = this.onCutDownOver.bind(this);
+    this.onOver = this.onOver.bind(this);
+  }
+  static propTypes = {
+    result: PropTypes.func, //测试结束返回测试结果的函数
+    showBtn: PropTypes.func, //显示控制按钮
+    hideBtn: PropTypes.func //隐藏控制按钮
+  };
+  componentWillUnmount() {
+    this.isBack = true;
+    this.isPause = true;
+    this.clearErrorTimer();
+    this.clearRightTimer();
+    this.clearPlayTimer();
+    if (this.disabledTimer) {
+      clearTimeout(this.disabledTimer);
+      this.disabledTimer = null;
+    }
+    this.volume && this.volume.release();
+  }
+  initSound(src) {
+    let soundSrc = courseRoot + "voices";
+    this.volume && this.volume.release();
+    this.volume = new Sound(src, soundSrc, error => {
+      if (error) {
+        this.volume.reset();
+      }
+    });
+  }
+
+  shouldComponentUpdate() {
+    return !this.isBack;
+  }
+  setData(words) {
+    //设置数据
+    if (!Array.isArray(words)) {
+      return;
+    }
+    let arr = words.map(item => {
+      if (item) {
+        let means = "【中】" + item.correct;
+        let obj = {
+          id: item.id || "",
+          word: item.word,
+          soundPath: item.content7,
+          chineseMeans: means,
+          answer: "",
+          isCorrect: false,
+          finishedTime: ""
+        };
+        if (item.wordNo) {
+          obj["wordNo"] = item.wordNo;
+        }
+        return obj;
+      }
+    });
+    this.length = arr.length;
+    this.wordList = arr;
+    this.setState(
+      {
+        opacity: 1,
+        totalNumber: this.length
+      },
+      () => {
+        this.startTime = utility.dateToTimeStr(new Date());
+        this.next();
+      }
+    );
+  }
+  next() {
+    //下一个
+    if (!this.isPause) {
+      if (this.currIndex < this.length) {
+        this.isOver = false;
+        let n = (this.currIndex + 1) / this.state.totalNumber * 100;
+        this.currWord = this.wordList[this.currIndex];
+        this.initSound(this.currWord.soundPath);
+        this.setState({ pauseBtnOpacity: 0, currProgress: n }, () => {
+          this.progressBar.cutDownStart(); //倒计时
+          this.refs.WordSpell &&
+            this.refs.WordSpell.setWord(
+              this.currWord.word,
+              this.currWord.chineseMeans
+            );
+        });
+        this.currIndex++;
+      } else {
+        this.end();
+      }
+    }
+  }
+
+  pauseBtn() {
+    //暂停或开始
+    if (this.state.pauseBtnOpacity === 0) {
+      return;
+    }
+    if (!this.state.testEnd) {
+      if (this.isPause) {
+        this.play();
+      } else {
+        this.pause();
+      }
+    } else {
+      //重新开始
+      // this.props.navigation.goBack()
+    }
+  }
+  pause() {
+    //暂停
+    this.isPause = true;
+    this.setState({ pauseBtnText: "继续测试" });
+    this.clearErrorTimer();
+    this.clearRightTimer();
+  }
+
+  play() {
+    //开始
+    this.isPause = false;
+    this.setState({ pauseBtnText: "暂停" });
+    this.playTimer = setTimeout(() => {
+      this.next();
+      this.clearPlayTimer();
+    }, 200);
+  }
+  onOver(error, answer) {
+    if (this.isOver) return;
+    this.isOver = true;
+    this.volume && this.volume.play();
+    this.progressBar.cutDownStop(); //倒计时
+    this.currWord.answer = answer || "";
+    this.currWord.finishedTime = utility.dateToDateStr(new Date());
+    this.currWord.isCorrect = error;
+    if (error) {
+      this.answerError();
+    } else {
+      this.answerRight();
+    }
+  }
+  clearPlayTimer() {
+    if (this.playTimer) {
+      clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
+  }
+  onCutDownOver() {
+    if (!this.isPause && !this.isOver) {
+      this.isOver = true;
+      this.volume && this.volume.play();
+      soundManage.play("next");
+      this.currWord.answer = "";
+      this.currWord.finishedTime = utility.dateToDateStr(new Date());
+      this.refs.WordSpell && this.refs.WordSpell.examOver();
+      this.noAnswer++;
+      this.setState({
+        errorScore: this.state.errorScore + 1,
+        pauseBtnOpacity: 1
+      });
+      this.errorTimer = setTimeout(() => {
+        //延迟二秒
+        this.clearErrorTimer();
+        this.next();
+      }, 1000);
+    }
+  }
+  answerRight() {
+    soundManage.play("success");
+    this.setState({
+      rightScore: ++this.state.rightScore
+    });
+    this.rigthTimer = setTimeout(() => {
+      this.next();
+      this.clearRightTimer();
+    }, 700);
+  }
+  answerError() {
+    soundManage.play("error");
+    this.setState({
+      errorScore: ++this.state.errorScore,
+      pauseBtnOpacity: 1
+    });
+    this.errorTimer = setTimeout(() => {
+      //延迟1.5秒进入下一题
+      this.next();
+      this.clearErrorTimer();
+    }, 1500);
+  }
+  end() {
+    //test结束
+    let finishedTime = utility.dateToTimeStr(new Date());
+    let result = {
+      startTime: this.startTime,
+      finishedTime: finishedTime,
+      rightScore: this.state.rightScore,
+      errorScore: this.state.errorScore,
+      noAnswer: this.noAnswer,
+      wordList: this.wordList,
+      total: this.state.totalNumber
+    };
+    this.props.result && this.props.result(result);
+  }
+  clearRightTimer() {
+    if (this.rigthTimer) {
+      clearTimeout(this.rigthTimer);
+      this.rigthTimer = null;
+    }
+  }
+  clearErrorTimer() {
+    if (this.errorTimer) {
+      clearTimeout(this.errorTimer);
+      this.errorTimer = null;
+    }
+  }
+  __renderTest() {
+    return (
+      <View style={[styles.AnimatedView]}>
+        <View style={{ width: "50%", height: 5, opacity: this.state.opacity }}>
+          <ProgressBar
+            barStyle={{
+              height: 5,
+              borderRadius: 5,
+              hideText: true,
+              barColor: globalStyle.color.danger,
+              bgColor: "#EEEEEE"
+            }}
+            duration={5000}
+            ref={ref => {
+              this.progressBar = ref;
+            }}
+            cutDownMode={true}
+            onCutDownOver={this.onCutDownOver}
+          />
+        </View>
+        <View style={styles.topicsBox}>
+          <WordSpell ref="WordSpell" examMode={true} onOver={this.onOver} />
+        </View>
+      </View>
+    );
+  }
+  render() {
+    let barStyle = {
+      height: 10,
+      barColor: "#06B025",
+      textColor: "transparent"
+    };
+    return (
+      <View style={styles.container}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={{ width: "100%" }}
+        >
+          <View style={styles.title}>
+            <View>
+              <Text>
+                {this.state.title} (题量:{this.state.totalNumber})
+              </Text>
+            </View>
+            <View
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                flex: 1
+              }}
+            >
+              <View style={styles.progressBarContainer}>
+                <ProgressBar
+                  progress={this.state.currProgress}
+                  barStyle={barStyle}
+                />
+              </View>
+            </View>
+            <View style={styles.rightNum}>
+              <View style={{ marginRight: 5 }}>
+                <Text style={{ color: "#56BDFF" }}>
+                  正确:{this.state.rightScore}
+                </Text>
+              </View>
+              <View>
+                <Text style={{ color: "#FF7676" }}>
+                  错误:{this.state.errorScore}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={[
+              styles.container,
+              { height: 400, width: "100%", justifyContent: "center" }
+            ]}
+          >
+            {this.__renderTest()}
+          </View>
+        </ScrollView>
+        <View style={[styles.footer, { opacity: this.state.pauseBtnOpacity }]}>
+          <TouchableOpacity
+            onPress={this.pauseBtn.bind(this)}
+            style={styles.pauseBtn}
+            activeOpacity={1}
+          >
+            <Text style={{ color: "#ffffff" }}>{this.state.pauseBtnText}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center"
+  },
+  title: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10
+    // paddingHorizontal: 30
+  },
+  wordText: {
+    fontSize: 36,
+    fontWeight: "bold",
+    color: globalStyle.color.primary
+  },
+  AnimatedView: {
+    width: "100%",
+    alignItems: "center"
+  },
+  resultView: {
+    height: 300,
+    // position: "absolute",
+    // top: 0,
+    // left: "50%",
+    justifyContent: "space-around"
+  },
+  pauseBtn: {
+    width: 180,
+    backgroundColor: globalStyle.color.primary,
+    borderRadius: 5,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  rightNum: {
+    width: 200,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  footer: {
+    width: "100%",
+    height: 70,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 30,
+    alignItems: "flex-end",
+    justifyContent: "center"
+  },
+  topicsBox: {
+    width: "70%",
+    marginTop: 30
+  },
+  resultTitle: {
+    color: globalStyle.color.primary,
+    fontSize: 30,
+    fontWeight: "400"
+  },
+  progressBarContainer: {
+    width: "70%",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row"
+  }
+});

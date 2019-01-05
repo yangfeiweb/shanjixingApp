@@ -1,0 +1,433 @@
+import React, { Component } from "react";
+import {
+  View,
+  ImageBackground,
+  Image,
+  AsyncStorage,
+  StyleSheet,
+  DeviceEventEmitter
+} from "react-native";
+import {
+  Container,
+  Text,
+  Content,
+  Item,
+  Input,
+  Label,
+  Card,
+  CardItem,
+  Grid,
+  Col,
+  Radio,
+  Button
+} from "native-base";
+import DatePicker from "react-native-datepicker";
+import ModalDropdown from "react-native-modal-dropdown";
+import { GRADLE } from "../../utility/dict";
+import { Header, Loading } from "../../components";
+import dataService from "../../services";
+import { utility } from "../../utility";
+import { EVENT } from "../../utility/dict";
+
+const MAN = "MALE"; //男
+const WOMAN = "FEMALE"; //女
+const TODAY = utility.dateToDateStr(new Date()); //当日的日期
+export default class extends Component {
+  constructor(props) {
+    super(props);
+    this.currMobile = null;
+    this.userName = null;
+    this.selectGrade = null;
+    this.loading = null;
+    this.selectProvinceName = "";
+    this.selectCityName = "";
+    this.selectDisName = "";
+    this.districtCode = null;
+    this.cityElement = null; //城市下拉组建
+    this.disElement = null; //县区下拉组建
+    this.districtType = {
+      PROVINCE: "PROVINCE", //省
+      CITY: "CITY", //市
+      DISTRICT: "DISTRICT" //县区
+    };
+  }
+  state = {
+    name:"",
+    defalutIndex: -1,
+    defaultSex: undefined,
+    birthday: null,
+    provinceList: [],
+    cityList: [],
+    districtList: [],
+    selectPro: null,
+    selectCity: null,
+    selectDis: null
+  };
+  componentDidMount() {
+
+    AsyncStorage.getItem("studentNo").then(studentNo => {
+      if (studentNo) {
+        AsyncStorage.getItem("usersInfo").then(res => {
+          if (res) {
+            let index = -1;
+            let defaultSex = undefined;
+            let birthday = null;
+            let name = ""
+            let infos = JSON.parse(res);
+            let currInfo = infos.find(item => item.studentNo === studentNo);
+            if (currInfo) {
+              this.currMobile = currInfo.mobile;
+              if (currInfo.currentGrade) {
+                index = GRADLE.findIndex(
+                  item => item === currInfo.currentGrade
+                );
+              }
+              name = currInfo.name || ""
+              if (currInfo.gender && currInfo.gender !== "UNKNOWN") {
+                defaultSex = currInfo.gender;
+              }
+              if (currInfo.birthDate) {
+                birthday = currInfo.birthDate.split(" ")[0];
+              }
+              this.setState({
+                defalutIndex: index,
+                defaultSex: defaultSex,
+                birthday: birthday,
+                name:name
+              });
+            }
+          }
+        });
+      }
+    });
+
+    this.query(this.districtType.PROVINCE).then(res => {
+      let code = res.code;
+      let msg = res.msg;
+      if (code === 200) {
+        let data = res.data;
+        this.setState({ provinceList: data });
+      }
+      if (code === 500) {
+        utility.Toast(msg);
+      }
+    });
+  }
+
+  query(type, code = "") {
+    this.loading.show();
+    return new Promise((resolve, reject) => {
+      dataService.divisionQuery(type, code).then(
+        res => {
+          resolve(res);
+          this.loading.hide();
+        },
+        err => {
+          this.loading.show();
+          reject(err);
+        }
+      );
+    });
+  }
+  getUserName(val) {
+    this.userName = val;
+  }
+  save() {
+    let params = {};
+    if (this.userName) {
+      params["name"] = this.userName;
+    }
+    if (this.state.defaultSex) {
+      params["gender"] = this.state.defaultSex;
+    }
+    if (this.state.birthday && this.state.birthday !== TODAY) {
+      params["birthDate"] = this.state.birthday.replace(/\s*-\s*/g, "");
+    }
+    if (this.selectGrade) {
+      params["grade"] = this.selectGrade;
+    }
+    if (this.districtCode) {
+      params["districtCode"] = this.districtCode;
+    }
+    if (Object.keys(params).length === 0) {
+      //检验params是否是空对象 空则退出
+      utility.Toast("请填写要修改的资料");
+      return;
+    }
+    this.loading.show();
+    dataService.changeUserInfo(params).then(
+      res => {
+        let code = res.code;
+        let msg = res.msg;
+        if (code === 200) {
+          utility.Toast("修改成功");
+          AsyncStorage.getItem("usersInfo").then(res => {
+            let infos = JSON.parse(res);
+            let index = infos.findIndex(
+              item => item.mobile === this.currMobile
+            );
+            if (index !== -1) {
+              let data = infos[index];
+              infos.splice(index, 1);
+              if (params["districtCode"]) {
+                params["address"] = `${this.selectProvinceName}${
+                  this.selectCityName
+                }${this.selectDisName}`;
+              }
+              infos.push(Object.assign(data, params));
+              AsyncStorage.setItem("usersInfo", JSON.stringify(infos)).then(
+                res => {
+                  DeviceEventEmitter.emit(EVENT.CHANGE_USER_INFO);
+                }
+              );
+            }
+          });
+        }
+        if (code === 500) {
+          utility.Toast("修改失败,请稍后重试");
+        }
+        this.loading.hide();
+      },
+      err => {
+        this.loading.hide();
+      }
+    );
+  }
+  onSelectGrade(val) {
+    let item = GRADLE[val];
+    this.selectGrade = item.key;
+  }
+  onSelectProvince(val) {
+    let item = this.state.provinceList[val];
+    this.selectProvinceName = item.name || "";
+    let code = item.code;
+    this.districtCode = null;
+    this.query(this.districtType.CITY, code).then(res => {
+      let code = res.code;
+      let msg = res.msg;
+      if (code === 200) {
+        let data = res.data;
+        this.setState({ cityList: data });
+      }
+      if (code === 500) {
+        utility.Toast(msg);
+      }
+    });
+  }
+  onSelectCity(val) {
+    let item = this.state.cityList[val];
+    this.selectCityName = item.name || "";
+    let code = item.code;
+    this.districtCode = null;
+    this.query(this.districtType.DISTRICT, code).then(res => {
+      let code = res.code;
+      let msg = res.msg;
+      if (code === 200) {
+        let data = res.data;
+        this.setState({ districtList: data });
+      }
+      if (code === 500) {
+        utility.Toast(msg);
+      }
+    });
+  }
+  onSelectDis(val) {
+    let item = this.state.districtList[val];
+    this.selectDisName = item.name || "";
+    let code = item.code;
+    this.districtCode = code;
+  }
+  getYesterday(date) {
+    //得到前一天的日期
+    let time = new Date(date);
+    let day = time.getDate();
+    time.setDate(day - 1);
+    return utility.dateToDateStr(time);
+  }
+  render() {
+    return (
+      <Container>
+        <ImageBackground
+          source={require("../../assets/images/registry-background.png")}
+          resizeMode={Image.resizeMode.cover}
+          style={{ width: "100%", height: "100%" }}
+        >
+          <Header title="修改个人资料" transparent>
+            <View
+              slot="right"
+              style={{
+                flex: 1,
+                alignItems: "flex-end",
+                justifyContent: "center"
+              }}
+            >
+              <Button transparent block onPress={this.save.bind(this)}>
+                <Text style={{ color: "#fff" }}>保存</Text>
+              </Button>
+            </View>
+          </Header>
+          <Content
+            contentContainerStyle={{
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 20
+            }}
+          >
+            <Card style={{ width: "70%" }}>
+              <CardItem>
+                <Text>姓名:</Text>
+                <Item regular style={{ width: "60%" }}>
+                  <Input
+                  defaultValue={this.state.name}
+                    placeholder="请输入姓名"
+                    onChangeText={this.getUserName.bind(this)}
+                  />
+                </Item>
+              </CardItem>
+              <CardItem>
+                <Text>年级:</Text>
+                <View style={{ marginLeft: 10 }}>
+                  <ModalDropdown
+                    defalutIndex={this.state.defalutIndex}
+                    dropdownStyle={styles.dropdownStyle}
+                    // keyboardShouldPersistTaps="always"
+                    // style={}
+                    showsVerticalScrollIndicator={false}
+                    options={GRADLE}
+                    renderRow={a => {
+                      return (
+                        <Text style={{ fontSize: 18, paddingVertical: 10 }}>
+                          {a.value}
+                        </Text>
+                      );
+                    }}
+                    defaultValue="请选择年级"
+                    style={styles.dropdownBtnStyle}
+                    onSelect={this.onSelectGrade.bind(this)}
+                    textStyle={{ fontSize: 18 }}
+                    renderButtonText={item => <Text>{item.value}</Text>}
+                  />
+                </View>
+              </CardItem>
+              <CardItem>
+                <Text>性别:</Text>
+                <View style={{ width: 150, marginLeft: 10 }}>
+                  <Grid>
+                    <Col style={{ flexDirection: "row" }}>
+                      <Radio
+                        activeOpacity={1}
+                        selected={this.state.defaultSex === MAN}
+                        onPress={() => {
+                          this.setState({ defaultSex: MAN });
+                        }}
+                      />
+                      <Text style={{ color: "#56BDFF" }}> 男</Text>
+                    </Col>
+                    <Col style={{ flexDirection: "row" }}>
+                      <Radio
+                        activeOpacity={1}
+                        selected={this.state.defaultSex === WOMAN}
+                        onPress={() => {
+                          this.setState({ defaultSex: WOMAN });
+                        }}
+                      />
+                      <Text style={{ color: "#56BDFF" }}> 女</Text>
+                    </Col>
+                  </Grid>
+                </View>
+              </CardItem>
+              <CardItem>
+                <Text>地区:</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    width: "60%",
+                    justifyContent: "space-around"
+                  }}
+                >
+                  <ModalDropdown
+                    dropdownStyle={styles.dropdownStyle}
+                    defaultValue="请选择所在省"
+                    options={this.state.provinceList}
+                    showsVerticalScrollIndicator={false}
+                    renderRow={item => (
+                      <Text style={{ fontSize: 18, paddingVertical: 10 }}>
+                        {item.name}
+                      </Text>
+                    )}
+                    textStyle={{ fontSize: 18 }}
+                    renderButtonText={item => <Text>{item.name}</Text>}
+                    onSelect={this.onSelectProvince.bind(this)}
+                  />
+                  <ModalDropdown
+                    dropdownStyle={styles.dropdownStyle}
+                    showsVerticalScrollIndicator={false}
+                    ref={ref => {
+                      this.cityElement = ref;
+                    }}
+                    options={this.state.cityList}
+                    renderRow={item => (
+                      <Text style={{ fontSize: 18, paddingVertical: 10 }}>
+                        {item.name}
+                      </Text>
+                    )}
+                    defaultValue="请选择所在市"
+                    renderButtonText={item => <Text>{item.name}</Text>}
+                    textStyle={{ fontSize: 18 }}
+                    onSelect={this.onSelectCity.bind(this)}
+                  />
+                  <ModalDropdown
+                    showsVerticalScrollIndicator={false}
+                    dropdownStyle={styles.dropdownStyle}
+                    ref={ref => {
+                      this.disElement = ref;
+                    }}
+                    options={this.state.districtList}
+                    renderRow={item => (
+                      <Text style={{ fontSize: 18, paddingVertical: 10 }}>
+                        {item.name}
+                      </Text>
+                    )}
+                    defaultValue="请选择县/区"
+                    renderButtonText={item => <Text>{item.name}</Text>}
+                    textStyle={{ fontSize: 18 }}
+                    onSelect={this.onSelectDis.bind(this)}
+                  />
+                </View>
+              </CardItem>
+              <CardItem>
+                <Text>生日:</Text>
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <DatePicker
+                    date={this.state.birthday}
+                    showIcon={false}
+                    onDateChange={date => {
+                      this.setState({ birthday: date });
+                    }}
+                    maxDate={this.getYesterday(TODAY)}
+                    minDate="1970-01-01"
+                  />
+                </View>
+              </CardItem>
+            </Card>
+          </Content>
+        </ImageBackground>
+        <Loading
+          ref={ref => {
+            this.loading = ref;
+          }}
+        />
+      </Container>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  dropdownStyle: {
+    width: 150
+  }
+  // dropdownBtnStyle: {
+  //     paddingVertical: 20,
+  //     underlayColor: "transparent"
+  // }
+});

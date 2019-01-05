@@ -1,0 +1,6 @@
+"use strict";
+import Login from "./Login";
+import ForgetPwd from "./ForgetPwd";
+import Registry from "./Registry";
+import UserList from "./UserList";
+export { Login, ForgetPwd, Registry, UserList };

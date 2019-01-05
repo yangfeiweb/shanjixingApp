@@ -1,0 +1,111 @@
+//年级
+export const GRADLE = [
+  { key: "L_ONE", value: "小学一年级" },
+  { key: "L_TWO", value: "小学二年级" },
+  { key: "L_THREE", value: "小学三年级" },
+  { key: "L_FOUR", value: "小学四年级" },
+  { key: "L_FIVE", value: "小学五年级" },
+  { key: "L_SIX", value: "小学六年级" },
+  { key: "M_ONE", value: "初一" },
+  { key: "M_TWO", value: "初二" },
+  { key: "M_THREE", value: "初三" },
+  { key: "H_ONE", value: "高一" },
+  { key: "H_TWO", value: "高二" },
+  { key: "H_THREE", value: "高三" },
+  { key: "C_ONE", value: "大一" },
+  { key: "C_TWO", value: "大二" },
+  { key: "C_THREE", value: "大三" },
+  { key: "C_FOUR", value: "大四" }
+];
+
+export const BOOK_CATEGORY = {
+  FREE: "免费",
+  BABY: "幼儿",
+  PRIMARY: "小学",
+  MIDDLE: "初中",
+  HIGH: "高中",
+  COLLEGE: "大学",
+  GO_ABROAD: "出国",
+  COMMON: "通用"
+};
+
+export const BOOK_COLUMN_TYPE = {
+  ENGLISH_WORD: "单词速记",
+  CHINESE_WORD: "汉字速记",
+  KNOWLEDGE: "知识速记"
+};
+
+//自定义事件类型
+export const EVENT = {
+  CHANGE_ICON: "changeIcon", //修改头像
+  CHANGE_USER_INFO: "changeUserInfo", //修改了用户信息
+  RECHARGE: "recharge" //充值
+};
+
+export const IMAGE_PATH = "asset:/userAvatar/";
+export const IMG_TYPE = ".jpg";
+
+export const EXAM_TYPE = {
+  /**
+   * 课本单词测试(学前测试)
+   */
+  BOOK_WORD_BEFORE: "BOOK_WORD_BEFORE",
+  /**
+   * 课本单词测试(学后测试)
+   */
+  BOOK_WORD_AFTER: "BOOK_WORD_AFTER",
+  /**
+   * 栏目单词测试(学前测试)
+   */
+  COLUMN_WORD_BEFORE: "COLUMN_WORD_BEFORE",
+  /**
+   * 栏目单词测试(学后测试)
+   */
+  COLUMN_WORD_AFTER: "COLUMN_WORD_BEFORE",
+  /***
+   *综合单词测试
+   */
+  WORD: "WORD",
+  /**
+   * 课本单词拼写(学前测试)
+   */
+  BOOK_WORD_SPELL_BEFORE: "BOOK_WORD_SPELL_BEFORE",
+  /**
+   * 课本单词拼写(学后测试)
+   */
+  BOOK_WORD_SPELL_AFTER: "BOOK_WORD_SPELL_AFTER",
+  /**
+   * 栏目单词拼写(学前测试)
+   */
+  COLUMN_WORD_SPELL_BEFORE: "COLUMN_WORD_SPELL_BEFORE",
+  /**
+   * 栏目单词拼写(学后测试)
+   */
+  COLUMN_WORD_SPELL_AFTER: "COLUMN_WORD_SPELL_AFTER"
+};
+
+export const SYNC_TYPE = {
+  BOOK: "BOOK",
+  LEARN_RECORD: "DAY_LEARN_TIME",
+  EXAM: "EXAM",
+  EXAM_SPELL: "EXAM_SPELL"
+};
+
+export const LEARN_TYPE = {
+  DEFAULT: "DEFAULT",
+  LISTEN: "LISTEN",
+  SPELL: "SPELL"
+};
+
+export const BOOK_TYPE_ENGLISH = "ENGLISH_WORD";
+
+export const DEVICE_DEFAULT_HEIGHT = 750;
+
+export const ASSET_TYPE = {
+  MUSIC: "APP_BG_MUSIC" //音乐资源类型
+};
+// export const TEST_TYPE = {
+//   WORD_TEST: "word_test", //词汇量测试
+//   BEFORE: "learn_before_test", //章节前测试
+//   AFTER: "learn_after_test" //章节后测试
+// };
